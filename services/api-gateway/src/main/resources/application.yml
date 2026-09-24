@@ -1,0 +1,99 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:3000"
+              - "http://localhost:5173"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+      routes:
+        - id: identity-service-route
+          uri: lb://identity-access-service
+          predicates:
+            - Path=/api/v1/auth/**, /api/v1/customers/**, /api/v1/backoffice/users/**, /api/v1/backoffice/roles/**
+
+        - id: catalog-service-route
+          uri: lb://catalog-service
+          predicates:
+            - Path=/api/v1/categories/**, /api/v1/products/**, /api/v1/backoffice/catalog/**
+
+        - id: pricing-service-route
+          uri: lb://pricing-service
+          predicates:
+            - Path=/api/v1/prices/**, /api/v1/backoffice/pricing/**
+
+        - id: cart-service-route
+          uri: lb://cart-service
+          predicates:
+            - Path=/api/v1/cart/**
+
+        - id: inventory-service-route
+          uri: lb://inventory-service
+          predicates:
+            - Path=/api/v1/inventory/**, /api/v1/backoffice/skus/{skuId}/inventory/**
+
+        - id: order-service-route
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders/**, /api/v1/backoffice/orders/**
+
+        - id: payment-service-route
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments/**, /api/v1/backoffice/payments/**
+
+        - id: fulfillment-service-route
+          uri: lb://fulfillment-service
+          predicates:
+            - Path=/api/v1/shipments/**, /api/v1/backoffice/fulfillment/**
+
+        - id: notification-service-route
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/v1/notifications/**, /api/v1/backoffice/notifications/**, /api/v1/backoffice/notification-templates/**
+
+        - id: audit-service-route
+          uri: lb://audit-compliance-service
+          predicates:
+            - Path=/api/v1/backoffice/audit-log/**
+
+        - id: configuration-service-route
+          uri: lb://business-configuration-service
+          predicates:
+            - Path=/api/v1/backoffice/configurations/**
+
+        - id: exception-service-route
+          uri: lb://exception-management-service
+          predicates:
+            - Path=/api/v1/backoffice/exceptions/**, /api/v1/backoffice/dashboard/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway

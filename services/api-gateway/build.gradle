@@ -1,0 +1,17 @@
+plugins {
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dependency.management)
+}
+
+dependencies {
+    implementation(project(':services:common')) {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-web'
+    }
+    implementation libs.spring.cloud.starter.gateway
+    implementation libs.spring.cloud.starter.netflix.eureka.client
+    implementation libs.spring.cloud.starter.loadbalancer
+    implementation libs.spring.boot.starter.actuator
+    implementation libs.micrometer.registry.prometheus
+
+    testImplementation libs.spring.boot.starter.test
+}
