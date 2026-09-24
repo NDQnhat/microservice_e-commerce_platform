@@ -1,0 +1,868 @@
+TECH_PROFILE:
+  metadata:
+    profile_id: "ecommerce-distributed-fullstack-java"
+    profile_name: "Distributed E-Commerce Platform - Fullstack Java"
+    profile_version: "1.0"
+    project_type: "production_like_learning_portfolio"
+    primary_goal:
+      - "implement_the_approved_SRS"
+      - "demonstrate_real_distributed_system_design"
+      - "maintain_clear_business_to_technology_traceability"
+    technology_selection_principle:
+      - "business_need_first"
+      - "engineering_justification_required"
+      - "no_decorative_technology"
+      - "no_unnecessary_complexity"
+
+  frontend:
+    user_web:
+      framework:
+        name: "Next.js"
+        version: "15.x"
+        framework_type: "React_fullstack_web_framework"
+        rendering_strategy:
+          - "Server Components by default"
+          - "Client Components only when required"
+        routing: "App Router"
+      language:
+        name: "TypeScript"
+        version: "5.x"
+      ui_library:
+        name: "React"
+        version: "19.x"
+      styling:
+        name: "Tailwind CSS"
+        version: "4.x"
+      server_state:
+        name: "TanStack Query"
+        version: "5.x"
+        purpose:
+          - "server_state"
+          - "API_cache"
+          - "request_lifecycle"
+          - "mutation_state"
+      client_state:
+        name: "Zustand"
+        version: "5.x"
+        usage_policy:
+          - "UI_state"
+          - "small_client_only_state"
+          - "do_not_duplicate_server_state"
+      form_validation:
+        form_library: "React Hook Form"
+        validation_library: "Zod"
+      http_client:
+        name: "native_fetch"
+        strategy: "centralized_API_client_wrapper"
+      authentication:
+        strategy: "backend_managed_authentication"
+        access_token_strategy: "HTTP_only_secure_cookie_or_BFF_compatible_flow"
+        authorization: "RBAC_from_backend"
+      api_contract:
+        format: "OpenAPI"
+        client_generation: "optional"
+      testing:
+        unit_component: "Vitest"
+        component: "React Testing Library"
+        e2e: "Playwright"
+
+    admin_web:
+      framework:
+        name: "React"
+        version: "19.x"
+        framework_type: "SPA"
+      build_tool:
+        name: "Vite"
+        version: "7.x"
+      language:
+        name: "TypeScript"
+        version: "5.x"
+      styling:
+        name: "Tailwind CSS"
+        version: "4.x"
+      routing:
+        name: "React Router"
+        version: "7.x"
+      server_state:
+        name: "TanStack Query"
+        version: "5.x"
+      client_state:
+        name: "Zustand"
+        version: "5.x"
+      form_validation:
+        form_library: "React Hook Form"
+        validation_library: "Zod"
+      http_client:
+        name: "native_fetch"
+        strategy: "centralized_API_client_wrapper"
+      authentication:
+        strategy: "JWT"
+        authorization_model: "RBAC"
+        roles:
+          - "SUPER_ADMIN"
+          - "CATALOG_ADMIN"
+          - "INVENTORY_ADMIN"
+          - "ORDER_OPERATIONS_ADMIN"
+          - "CUSTOMER_SUPPORT"
+      api_contract:
+        format: "OpenAPI"
+      testing:
+        unit_component: "Vitest"
+        component: "React Testing Library"
+        e2e: "Playwright"
+
+  backend:
+    architecture:
+      style: "microservices"
+      architectural_principles:
+        - "business_capability_based_service_boundaries"
+        - "database_per_service"
+        - "high_cohesion"
+        - "low_coupling"
+        - "dependency_inversion"
+        - "explicit_domain_boundaries"
+      service_boundary_policy:
+        - "do_not_create_service_per_role"
+        - "do_not_create_service_per_entity"
+        - "services_are_defined_by_business_capability"
+      logical_services:
+        - "identity-access-service"
+        - "catalog-service"
+        - "pricing-service"
+        - "cart-service"
+        - "inventory-service"
+        - "order-service"
+        - "payment-service"
+        - "fulfillment-service"
+        - "notification-service"
+        - "audit-compliance-service"
+        - "business-configuration-service"
+        - "exception-management-service"
+
+    runtime:
+      language: "Java"
+      language_version: "17"
+      runtime: "JVM"
+      runtime_version: "17"
+      build_tool: "Gradle"
+      gradle_version: "9.x"
+      package_manager: "Gradle"
+
+    framework:
+      name: "Spring Boot"
+      version: "3.5.x"
+      framework_type: "backend_microservices"
+      supported_architectures:
+        - "feature_based"
+        - "clean_architecture"
+        - "hexagonal_principles_where_valuable"
+      default_architecture:
+        style: "feature_based_with_clear_domain_application_infrastructure_boundaries"
+      dependency_injection: "Spring IoC"
+
+    api:
+      protocol: "HTTP"
+      style: "REST"
+      controller: "Spring MVC"
+      serialization: "Jackson"
+      validation: "Jakarta Bean Validation"
+      error_format: "structured_json"
+      error_standard:
+        strategy: "RFC_7807_Problem_Details"
+      api_documentation:
+        name: "springdoc-openapi"
+        format: "OpenAPI 3"
+      pagination:
+        strategy: "pageable"
+      versioning:
+        strategy: "URI_versioning_when_required"
+        default: "/api/v1"
+
+    inter_service_communication:
+      synchronous:
+        protocol: "REST over HTTP"
+        primary_client: "Spring HTTP Interface Client"
+        fallback_client: "OpenFeign"
+        timeout:
+          connect_timeout: "explicitly_configured"
+          read_timeout: "explicitly_configured"
+        retry:
+          enabled: true
+          policy: "only_for_safe_or_idempotent_operations"
+        circuit_breaker:
+          enabled: true
+          library: "Resilience4j"
+        load_balancing:
+          enabled: true
+          library: "Spring Cloud LoadBalancer"
+      asynchronous:
+        protocol: "Apache Kafka"
+        usage:
+          - "domain_events"
+          - "integration_events"
+          - "event_driven_processing"
+          - "audit_consumption"
+          - "notification_consumption"
+          - "fulfillment_consumption"
+        policy:
+          - "do_not_use_Kafka_for_simple_request_response"
+          - "do_not_replace_all_REST_calls_with_Kafka"
+
+  database:
+    primary:
+      type: "PostgreSQL"
+      version: "16.x"
+      driver: "PostgreSQL JDBC Driver"
+      architecture: "database_per_service"
+      development_strategy:
+        physical_instance: "shared_PostgreSQL_container_allowed"
+        logical_database_or_schema: "isolated_per_service"
+        production_principle: "service_owned_database"
+      connection_strategy: "application_managed"
+      migration_tool:
+        name: "Flyway"
+        version: "10.x"
+      transaction_strategy: "Spring_transaction_management"
+
+    persistence:
+      orm:
+        name: "Hibernate"
+        version: "6.x"
+      framework: "Spring Data JPA"
+      repository_pattern: "Spring Data Repository"
+      entity_mapping: "JPA"
+      query_strategy:
+        - "derived_query"
+        - "JPQL"
+        - "explicit_query"
+        - "native_query_only_when_justified"
+      n_plus_one_policy: "must_be_prevented"
+      loading_strategy:
+        - "explicit_fetch_strategy"
+        - "JOIN_FETCH_when_appropriate"
+        - "EntityGraph_when_appropriate"
+      optimistic_locking:
+        supported: true
+        strategy: "JPA_version_field_where_required"
+      pessimistic_locking:
+        supported: true
+        usage: "only_for_real_concurrency_requirements"
+      transaction_isolation:
+        default: "PostgreSQL_default"
+        stronger_isolation: "only_when_business_invariant_requires_it"
+
+    database_rules:
+      shared_schema_between_services: false
+      cross_service_foreign_keys: false
+      cross_service_joins: false
+      direct_database_access_between_services: false
+      service_must_access_own_database_only: true
+
+  authentication_and_authorization:
+    authentication:
+      mechanism: "JWT"
+      token_type: "Bearer"
+      library: "JJWT"
+      version: "0.12.x"
+      session_strategy: "stateless"
+      access_token:
+        lifetime: "short_lived"
+      refresh_token:
+        enabled: true
+        strategy: "rotating_refresh_token"
+        storage: "server_side_persistence"
+      password_hashing:
+        algorithm: "BCrypt"
+      password_policy:
+        never_store_plaintext: true
+
+    authorization:
+      model: "RBAC"
+      enforcement:
+        gateway: "coarse_grained"
+        service: "authoritative_business_authorization"
+      principle: "deny_by_default"
+      roles:
+        - "SUPER_ADMIN"
+        - "CATALOG_ADMIN"
+        - "INVENTORY_ADMIN"
+        - "ORDER_OPERATIONS_ADMIN"
+        - "CUSTOMER_SUPPORT"
+      business_rule:
+        - "RBAC_does_not_bypass_business_state_machines"
+        - "RBAC_does_not_allow_direct_database_state_mutation"
+        - "administrative_actions_must_use_valid_business_operations"
+
+  api_gateway:
+    enabled: true
+    technology:
+      name: "Spring Cloud Gateway"
+      version: "2025.x"
+    responsibilities:
+      - "single_external_entry_point"
+      - "routing"
+      - "authentication_pre_check"
+      - "rate_limiting_where_required"
+      - "correlation_id_propagation"
+      - "request_logging"
+    forbidden_responsibilities:
+      - "business_logic"
+      - "order_state_machine"
+      - "inventory_business_rules"
+      - "database_access"
+
+  service_discovery:
+    enabled: true
+    technology:
+      name: "Eureka"
+      version: "Spring Cloud 2025.x"
+    purpose:
+      - "service_registration"
+      - "service_discovery"
+      - "dynamic_service_location"
+    load_balancing:
+      name: "Spring Cloud LoadBalancer"
+      enabled: true
+
+  kafka:
+    enabled: true
+    platform: "Apache Kafka"
+    version: "3.x"
+    client: "Spring Kafka"
+    serialization:
+      key: "String"
+      value: "JSON"
+    schema_strategy:
+      initial: "versioned_JSON_event_contracts"
+      schema_registry: "not_required_for_initial_implementation"
+    producer:
+      idempotence: true
+      acknowledgment: "all"
+    consumer:
+      consumer_groups: true
+      manual_acknowledgment: "where_business_processing_requires_it"
+    delivery_semantics:
+      target: "at_least_once"
+      application_strategy: "idempotent_consumer"
+    ordering:
+      strategy: "partition_key_by_business_entity"
+      order_key_examples:
+        - "order_id"
+        - "inventory_sku_id"
+    retry:
+      enabled: true
+      strategy: "bounded_retry"
+    dead_letter:
+      enabled: true
+      strategy: "dead_letter_topic"
+    retention:
+      strategy: "business_appropriate_retention"
+    event_rules:
+      - "events_are_immutable"
+      - "event_names_are_business_meaningful"
+      - "event_payloads_are_versioned"
+      - "consumers_must_be_idempotent"
+      - "do_not_publish_events_directly_inside_unprotected_database_transaction"
+
+  transactional_outbox:
+    enabled: true
+    pattern: "transactional_outbox"
+    implementation:
+      storage: "service_owned_postgresql_database"
+      dispatcher: "application_background_publisher"
+    purpose:
+      - "atomic_business_state_change_plus_event_record"
+      - "prevent_dual_write_problem"
+    rules:
+      - "business_transaction_and_outbox_record_commit_together"
+      - "outbox_dispatch_must_be_retryable"
+      - "duplicate_event_delivery_must_be_safe"
+      - "outbox_record_must_not_be_deleted_before_successful_processing_policy"
+
+  distributed_transactions:
+    saga:
+      enabled: true
+      pattern: "Saga"
+      style: "orchestration_where_order_checkout_requires_central_coordination"
+      compensation: true
+      purpose:
+        - "coordinate_multi_service_business_transaction"
+        - "handle_partial_failure"
+      example:
+        - "create_order"
+        - "reserve_inventory"
+        - "initiate_payment"
+        - "payment_success"
+        - "consume_inventory_reservation"
+        - "payment_failure"
+        - "release_inventory_reservation"
+    consistency_model: "eventual_consistency_across_services"
+    forbidden:
+      - "distributed_2_phase_commit"
+      - "cross_service_database_transaction"
+
+  redis:
+    enabled: true
+    technology:
+      name: "Redis"
+      version: "7.x"
+    client: "Spring Data Redis"
+    use_cases:
+      cache:
+        enabled: true
+        pattern: "cache_aside"
+        ttl: "explicit_per_cache_type"
+      cart:
+        enabled: true
+        strategy: "Redis_backed_cart_where_defined_by_system_design"
+      distributed_lock:
+        enabled: true
+        purpose:
+          - "inventory_concurrency"
+          - "resource_contention"
+        ttl_required: true
+      inventory_reservation:
+        enabled: true
+        policy: "only_where_required_by_final_system_design"
+      rate_limiting:
+        enabled: true
+        policy: "only_for_endpoints_that_need_it"
+    cache_rules:
+      - "cache_is_not_source_of_truth_for_transactional_data"
+      - "database_remains_authoritative"
+      - "cache_invalidation_must_be_explicit"
+      - "ttl_must_be_defined"
+      - "avoid_caching_highly_volatile_transaction_state_without_justification"
+
+  inventory_concurrency:
+    consistency_model: "strong_consistency_within_inventory_service"
+    reservation:
+      state_machine:
+        - "ACTIVE"
+        - "CONSUMED"
+        - "RELEASED"
+        - "EXPIRED"
+      lifecycle:
+        create: "order_checkout_reservation_success"
+        consume: "order_payment_success"
+        release: "payment_failure_or_allowed_cancellation"
+        expire: "reservation_ttl_expired"
+      rules:
+        - "no_partial_reservation"
+        - "reservation_operation_must_be_idempotent"
+        - "available_stock_must_not_become_negative"
+        - "PACKING_does_not_control_reservation_lifecycle"
+    concurrency_control:
+      primary: "database_transaction_and_row_level_locking"
+      distributed_lock: "Redis_when_cross_instance_coordination_requires_it"
+
+  resilience:
+    library:
+      name: "Resilience4j"
+      version: "2.x"
+    patterns:
+      timeout:
+        enabled: true
+        default_policy: "explicit_per_remote_dependency"
+      retry:
+        enabled: true
+        rules:
+          - "bounded"
+          - "exponential_backoff"
+          - "jitter_where_appropriate"
+          - "only_retry_safe_operations"
+      circuit_breaker:
+        enabled: true
+        states:
+          - "CLOSED"
+          - "OPEN"
+          - "HALF_OPEN"
+      bulkhead:
+        enabled: true
+        policy: "only_for_high_contention_or_external_dependency_paths"
+    fallback:
+      strategy: "business_specific_fallback"
+      forbidden: "fake_success_response"
+
+  observability:
+    application_metrics:
+      technology:
+        name: "Micrometer"
+        version: "1.x"
+      backend: "Prometheus"
+    visualization:
+      technology: "Grafana"
+    health:
+      technology: "Spring Boot Actuator"
+    logging:
+      format: "structured_JSON"
+      level_strategy:
+        production: "INFO"
+        development: "DEBUG"
+      correlation:
+        enabled: true
+        fields:
+          - "trace_id"
+          - "span_id"
+          - "correlation_id"
+          - "request_id"
+    distributed_tracing:
+      standard: "OpenTelemetry"
+      instrumentation: "OpenTelemetry"
+      collector: "OpenTelemetry Collector"
+      backend: "Grafana Tempo"
+    observability_rules:
+      - "every_external_request_has_trace_context"
+      - "correlation_id_propagates_across_service_calls"
+      - "Kafka_messages_propagate_trace_context"
+      - "admin_actions_are_observable"
+      - "sensitive_information_must_not_be_logged"
+
+  object_storage:
+    enabled: true
+    technology:
+      name: "MinIO"
+      version: "RELEASE_latest_stable"
+      api_compatibility: "S3"
+    use_cases:
+      - "product_media"
+      - "uploaded_assets"
+    rules:
+      - "binary_files_are_not_stored_in_postgresql"
+      - "database_stores_object_metadata_and_reference"
+
+  backend_security:
+    framework:
+      name: "Spring Security"
+      version: "6.x"
+    protections:
+      - "authentication"
+      - "authorization"
+      - "password_hashing"
+      - "request_validation"
+      - "security_headers"
+    api_security:
+      - "JWT_validation"
+      - "RBAC"
+      - "input_validation"
+      - "resource_ownership_check"
+    forbidden:
+      - "trust_client_supplied_role"
+      - "trust_client_supplied_price"
+      - "trust_client_supplied_inventory_state"
+      - "direct_admin_database_mutation"
+
+  frontend_security:
+    rules:
+      - "never_store_sensitive_secret_in_frontend_source"
+      - "never_expose_private_environment_variables"
+      - "validate_user_input"
+      - "authorization_is_enforced_by_backend"
+      - "frontend_RBAC_is_UI_control_only"
+      - "do_not_treat_hidden_UI_elements_as_security"
+
+  testing:
+    backend:
+      unit:
+        framework: "JUnit 5"
+        mocking: "Mockito"
+        assertions: "AssertJ"
+      integration:
+        framework: "Spring Boot Test"
+        database: "Testcontainers PostgreSQL"
+        kafka: "Testcontainers Kafka"
+        redis: "Testcontainers Redis"
+      api:
+        strategy: "REST integration tests"
+      contract:
+        strategy: "OpenAPI_contract_validation"
+      concurrency:
+        required_for:
+          - "inventory_reservation"
+          - "distributed_lock"
+          - "idempotent_payment_callback"
+          - "order_state_transition"
+    frontend:
+      unit: "Vitest"
+      component: "React Testing Library"
+      e2e: "Playwright"
+    testing_principles:
+      - "business_invariants_are_tested"
+      - "state_machine_transitions_are_tested"
+      - "failure_paths_are_tested"
+      - "idempotency_is_tested"
+      - "concurrency_is_tested_where_required"
+      - "do_not_only_test_happy_paths"
+
+  code_quality:
+    backend:
+      formatting: "Spotless"
+      static_analysis:
+        - "Checkstyle"
+        - "SpotBugs"
+      dependency_analysis: "Gradle dependency management"
+    frontend:
+      linting: "ESLint"
+      formatting: "Prettier"
+      type_checking: "TypeScript strict mode"
+    rules:
+      naming:
+        java_class: "PascalCase"
+        java_method: "camelCase"
+        java_variable: "camelCase"
+        java_constant: "UPPER_SNAKE_CASE"
+        typescript_component: "PascalCase"
+        typescript_function: "camelCase"
+        typescript_variable: "camelCase"
+      comments: "explain_why_not_what"
+      visibility: "minimal_visibility"
+      null_handling: "avoid_unnecessary_nullability"
+      magic_values: "forbid_where_business_meaning_exists"
+
+  configuration:
+    strategy: "environment_based_configuration"
+    backend_config_format: "application.yml"
+    frontend_config_format: ".env"
+    secrets:
+      strategy: "environment_secrets"
+      never_commit: true
+    required_environment_variables:
+      backend:
+        - "SPRING_PROFILES_ACTIVE"
+        - "DATABASE_URL"
+        - "DATABASE_USERNAME"
+        - "DATABASE_PASSWORD"
+        - "REDIS_HOST"
+        - "REDIS_PORT"
+        - "KAFKA_BOOTSTRAP_SERVERS"
+        - "JWT_SECRET"
+        - "MINIO_ENDPOINT"
+        - "MINIO_ACCESS_KEY"
+        - "MINIO_SECRET_KEY"
+      frontend:
+        - "NEXT_PUBLIC_API_BASE_URL"
+    environment_profiles:
+      - "local"
+      - "test"
+      - "production"
+
+  containerization:
+    technology: "Docker"
+    image_strategy: "one_image_per_deployable_service"
+    base_image_policy:
+      backend: "official_JRE_or_JDK_runtime_image"
+      frontend: "official_Node_runtime_image"
+    build_strategy:
+      backend: "multi_stage_build"
+      frontend: "multi_stage_build"
+    local_orchestration:
+      technology: "Docker Compose"
+      enabled: true
+      infrastructure:
+        - "PostgreSQL"
+        - "Redis"
+        - "Kafka"
+        - "Kafka_UI"
+        - "MinIO"
+        - "Prometheus"
+        - "Grafana"
+        - "OpenTelemetry_Collector"
+        - "Tempo"
+    container_rules:
+      - "services_must_be_stateless_where_possible"
+      - "persistent_data_uses_named_volumes"
+      - "secrets_must_not_be_hardcoded"
+      - "health_checks_are_required"
+
+  ci_cd:
+    platform: "GitHub Actions"
+    enabled: true
+    pipeline:
+      pull_request:
+        - "frontend_lint"
+        - "frontend_typecheck"
+        - "frontend_unit_tests"
+        - "backend_compile"
+        - "backend_unit_tests"
+        - "backend_integration_tests"
+        - "static_analysis"
+      main_branch:
+        - "build"
+        - "test"
+        - "container_image_build"
+        - "container_image_publish"
+    deployment:
+      strategy: "container_based"
+      target: "TECH_STACK_DECISION_REQUIRED"
+    rules:
+      - "every_service_has_build_pipeline"
+      - "tests_must_pass_before_image_publish"
+      - "secrets_are_managed_by_CI_environment"
+      - "no_manual_build_as_required_release_step"
+
+  documentation:
+    api:
+      standard: "OpenAPI 3"
+      generator: "springdoc-openapi"
+    architecture:
+      format: "Markdown"
+      required_documents:
+        - "README"
+        - "Architecture Overview"
+        - "Service Boundaries"
+        - "Database Ownership"
+        - "API Documentation"
+        - "Kafka Event Catalog"
+        - "Local Development Guide"
+        - "Deployment Guide"
+    decision_records:
+      format: "ADR"
+      required_for:
+        - "major_architecture_decisions"
+        - "technology_decisions"
+        - "significant_tradeoffs"
+
+  project_structure:
+    repository_strategy: "monorepo"
+    root:
+      - "apps"
+      - "services"
+      - "infra"
+      - "docs"
+    apps:
+      user_web: "apps/user-web"
+      admin_web: "apps/admin-web"
+    services:
+      naming: "kebab-case"
+      examples:
+        - "identity-service"
+        - "catalog-service"
+        - "pricing-service"
+        - "cart-service"
+        - "inventory-service"
+        - "order-service"
+        - "payment-service"
+        - "fulfillment-service"
+        - "notification-service"
+        - "audit-service"
+        - "configuration-service"
+        - "exception-service"
+    infrastructure:
+      path: "infra"
+      contents:
+        - "docker-compose"
+        - "kafka"
+        - "redis"
+        - "postgresql"
+        - "minio"
+        - "observability"
+    documentation:
+      path: "docs"
+
+  dependency_policy:
+    version_policy: "PINNED_OR_LOCKED"
+    dependency_management:
+      backend: "Gradle Version Catalog"
+      frontend: "package-lock.json"
+    allowed_dependency_policy:
+      rule: "dependency_must_have_clear_technical_or_business_justification"
+    unlisted_dependency_policy: "REQUIRE_TECH_STACK_REVIEW"
+    forbidden_dependency_policy:
+      - "duplicate_frameworks_for_same_responsibility"
+      - "libraries_added_only_for_CV_value"
+      - "libraries_that_duplicate_existing_platform_capabilities"
+    deprecated_api_policy: "FORBID"
+
+  architecture_rules:
+    mandatory:
+      - "microservices"
+      - "REST_HTTP_for_synchronous_communication"
+      - "Kafka_for_asynchronous_communication"
+      - "database_per_service"
+      - "Redis_for_required_cache_cart_lock_reservation_use_cases"
+      - "Docker_containerization"
+      - "CI_CD"
+      - "observability"
+      - "RBAC"
+      - "transactional_outbox"
+      - "idempotent_consumers"
+      - "Saga_compensation_where_required"
+    forbidden:
+      - "shared_database_schema_between_services"
+      - "cross_service_database_access"
+      - "cross_service_foreign_keys"
+      - "distributed_2PC"
+      - "business_logic_inside_API_gateway"
+      - "business_logic_inside_frontend"
+      - "direct_database_access_from_frontend"
+      - "Kafka_for_simple_synchronous_queries"
+      - "Redis_as_authoritative_transactional_database"
+      - "manual_order_status_database_updates_bypassing_state_machine"
+
+  implementation_priority:
+    phase_1:
+      - "repository_structure"
+      - "Docker infrastructure"
+      - "PostgreSQL"
+      - "Redis"
+      - "Kafka"
+      - "Kafka UI"
+      - "Spring Cloud Gateway"
+      - "service discovery"
+    phase_2:
+      - "Identity & Access Service"
+      - "Catalog Service"
+      - "Pricing Service"
+      - "Cart Service"
+    phase_3:
+      - "Inventory Service"
+      - "Order Service"
+      - "Payment Service"
+      - "transactional_outbox"
+      - "Saga_orchestration"
+      - "idempotency"
+    phase_4:
+      - "Fulfillment Service"
+      - "Notification Service"
+      - "Audit & Compliance Service"
+      - "Business Configuration Service"
+      - "Exception Management Service"
+    phase_5:
+      - "Admin Web"
+      - "User Web"
+      - "observability"
+      - "integration_tests"
+      - "E2E_tests"
+    phase_6:
+      - "CI/CD"
+      - "production_like_hardening"
+      - "performance_and_concurrency_testing"
+
+  generation_policy:
+    allow_inference: false
+    allow_new_dependencies: false
+    allow_architecture_change: false
+    allow_business_logic_change: false
+    allow_service_boundary_change: false
+    allow_database_ownership_change: false
+    allow_api_contract_change: false
+    allow_event_contract_change: false
+    allow_state_machine_change: false
+    allow_unapproved_technology: false
+    require_justification_for:
+      - "new_dependency"
+      - "new_infrastructure_component"
+      - "new_design_pattern"
+      - "new_service"
+      - "database_engine_change"
+      - "communication_protocol_change"
+    source_of_truth:
+      business_behavior: "SRS"
+      technology: "TECH_PROFILE"
+      architecture: "approved_system_design"
+      implementation: "approved_implementation_plan"
+    conflict_resolution:
+      - "SRS_has_priority_for_business_behavior"
+      - "TECH_PROFILE_has_priority_for_technology_selection"
+      - "System_Design_must_not_change_SRS_business_rules"
+      - "Code_generation_must_not_invent_missing_business_requirements"
