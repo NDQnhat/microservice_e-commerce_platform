@@ -15,8 +15,13 @@ public class ApiErrorResponse {
     private String detail;
     private String instance;
     private String code;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("violated_rule")
     private String violatedRule;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("correlation_id")
     private String correlationId;
+
     private Instant timestamp;
     private Map<String, List<String>> errors;
 

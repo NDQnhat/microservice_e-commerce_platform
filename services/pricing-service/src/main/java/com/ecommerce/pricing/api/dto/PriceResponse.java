@@ -1,14 +1,24 @@
 package com.ecommerce.pricing.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.UUID;
 
 public class PriceResponse {
 
+    @JsonProperty("sku_id")
     private UUID skuId;
+
+    @JsonProperty("base_price")
     private BigDecimal basePrice;
+
+    @JsonProperty("promotional_price")
     private BigDecimal promotionalPrice;
+
+    @JsonProperty("effective_price")
     private BigDecimal effectivePrice;
+
+    @JsonProperty("currency")
     private String currency;
 
     public PriceResponse() {

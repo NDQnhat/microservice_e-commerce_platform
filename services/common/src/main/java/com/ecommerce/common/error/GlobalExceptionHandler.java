@@ -139,6 +139,42 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(response);
     }
 
+    @ExceptionHandler(AuthenticationFailedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthenticationFailedException(AuthenticationFailedException ex,
+                                                                                HttpServletRequest request) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                "urn:problem-type:authentication-failed",
+                "Authentication Failed",
+                HttpStatus.UNAUTHORIZED.value(),
+                ex.getMessage(),
+                request.getRequestURI(),
+                "AUTHENTICATION_FAILED",
+                null,
+                CorrelationContext.getCorrelationId(),
+                null
+        );
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    @ExceptionHandler(AuthorizationFailedException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthorizationFailedException(AuthorizationFailedException ex,
+                                                                               HttpServletRequest request) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                "urn:problem-type:authorization-failed",
+                "Authorization Failed",
+                HttpStatus.FORBIDDEN.value(),
+                ex.getMessage(),
+                request.getRequestURI(),
+                "AUTHORIZATION_FAILED",
+                null,
+                CorrelationContext.getCorrelationId(),
+                null
+        );
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleGenericException(Exception ex,
                                                                    HttpServletRequest request) {

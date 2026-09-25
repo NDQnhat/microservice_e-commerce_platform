@@ -1,11 +1,16 @@
 package com.ecommerce.identity.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public class AuthResponse {
 
+    @JsonProperty("access_token")
     private String accessToken;
+
+    @JsonProperty("expires_in")
     private long expiresIn;
+
     private List<String> roles;
 
     public AuthResponse() {

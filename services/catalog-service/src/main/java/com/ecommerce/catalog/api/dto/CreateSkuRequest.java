@@ -1,16 +1,18 @@
 package com.ecommerce.catalog.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 public class CreateSkuRequest {
 
-    @NotNull(message = "Product ID is required")
     private UUID productId;
 
     @NotBlank(message = "SKU code is required")
     private String skuCode;
+
+    private Set<UUID> attributeValueIds = new HashSet<>();
 
     public CreateSkuRequest() {
     }
@@ -18,6 +20,13 @@ public class CreateSkuRequest {
     public CreateSkuRequest(UUID productId, String skuCode) {
         this.productId = productId;
         this.skuCode = skuCode;
+        this.attributeValueIds = new HashSet<>();
+    }
+
+    public CreateSkuRequest(UUID productId, String skuCode, Set<UUID> attributeValueIds) {
+        this.productId = productId;
+        this.skuCode = skuCode;
+        this.attributeValueIds = attributeValueIds != null ? attributeValueIds : new HashSet<>();
     }
 
     public UUID getProductId() {
@@ -34,5 +43,13 @@ public class CreateSkuRequest {
 
     public void setSkuCode(String skuCode) {
         this.skuCode = skuCode;
+    }
+
+    public Set<UUID> getAttributeValueIds() {
+        return attributeValueIds;
+    }
+
+    public void setAttributeValueIds(Set<UUID> attributeValueIds) {
+        this.attributeValueIds = attributeValueIds != null ? attributeValueIds : new HashSet<>();
     }
 }

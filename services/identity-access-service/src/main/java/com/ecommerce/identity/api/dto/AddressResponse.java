@@ -1,18 +1,26 @@
 package com.ecommerce.identity.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.UUID;
 
 public class AddressResponse {
 
     private UUID id;
+
+    @JsonProperty("customer_id")
     private UUID customerId;
+
+    @JsonProperty("recipient_name")
     private String recipientName;
+
     private String phone;
     private String line1;
     private String line2;
     private String ward;
     private String district;
     private String city;
+
+    @JsonProperty("is_default")
     private boolean isDefault;
 
     public AddressResponse() {

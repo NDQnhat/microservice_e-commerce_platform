@@ -1,102 +1,66 @@
 package com.ecommerce.identity.api.controller;
 
-import com.ecommerce.common.error.BusinessRuleException;
-import com.ecommerce.common.error.NotFoundException;
 import com.ecommerce.identity.api.dto.AssignRoleRequest;
 import com.ecommerce.identity.api.dto.UserResponse;
-import com.ecommerce.identity.domain.model.AccountStatus;
-import com.ecommerce.identity.domain.model.Role;
-import com.ecommerce.identity.domain.model.UserAccount;
-import com.ecommerce.identity.domain.repository.RoleRepository;
-import com.ecommerce.identity.domain.repository.UserAccountRepository;
+import com.ecommerce.identity.security.SecurityUtils;
+import com.ecommerce.identity.service.RbacService;
+import com.ecommerce.identity.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/backoffice/users")
 public class BackofficeUserController {
 
-    private final UserAccountRepository userAccountRepository;
-    private final RoleRepository roleRepository;
+    private final UserService userService;
+    private final RbacService rbacService;
 
-    public BackofficeUserController(UserAccountRepository userAccountRepository,
-                                    RoleRepository roleRepository) {
-        this.userAccountRepository = userAccountRepository;
-        this.roleRepository = roleRepository;
+    public BackofficeUserController(UserService userService, RbacService rbacService) {
+        this.userService = userService;
+        this.rbacService = rbacService;
     }
 
     @PostMapping("/{userId}/roles")
-    @Transactional
     public ResponseEntity<UserResponse> assignRole(@PathVariable UUID userId,
                                                    @Valid @RequestBody AssignRoleRequest request) {
-        UserAccount user = userAccountRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-
-        Role role = roleRepository.findByCode(request.getRoleCode())
-                .orElseThrow(() -> new BusinessRuleException("BR-018", "Invalid role code: " + request.getRoleCode()));
-
-        user.getRoles().add(role);
-        UserAccount saved = userAccountRepository.save(user);
-
-        return ResponseEntity.ok(mapToResponse(saved));
+        String actorId = SecurityUtils.getCurrentUserIdOrNull();
+        UserResponse response = rbacService.assignRole(userId, request.getRoleCode(), actorId);
+        return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{userId}/roles/{roleId}")
-    @Transactional
     public ResponseEntity<UserResponse> revokeRole(@PathVariable UUID userId,
                                                    @PathVariable UUID roleId) {
-        UserAccount user = userAccountRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-
-        Role role = roleRepository.findById(roleId)
-                .orElseThrow(() -> new NotFoundException("Role not found: " + roleId));
-
-        user.getRoles().remove(role);
-        UserAccount saved = userAccountRepository.save(user);
-
-        return ResponseEntity.ok(mapToResponse(saved));
+        String actorId = SecurityUtils.getCurrentUserIdOrNull();
+        UserResponse response = rbacService.revokeRole(userId, roleId, actorId);
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{userId}/lock")
-    @Transactional
     public ResponseEntity<UserResponse> lockAccount(@PathVariable UUID userId) {
-        UserAccount user = userAccountRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-
-        user.setStatus(AccountStatus.LOCKED);
-        UserAccount saved = userAccountRepository.save(user);
-
-        return ResponseEntity.ok(mapToResponse(saved));
+        UserResponse response = userService.lockAccount(userId);
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{userId}/unlock")
-    @Transactional
     public ResponseEntity<UserResponse> unlockAccount(@PathVariable UUID userId) {
-        UserAccount user = userAccountRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
-
-        user.setStatus(AccountStatus.ACTIVE);
-        UserAccount saved = userAccountRepository.save(user);
-
-        return ResponseEntity.ok(mapToResponse(saved));
+        UserResponse response = userService.unlockAccount(userId);
+        return ResponseEntity.ok(response);
     }
 
-    private UserResponse mapToResponse(UserAccount user) {
-        List<String> roleCodes = user.getRoles().stream()
-                .map(Role::getCode)
-                .collect(Collectors.toList());
+    @GetMapping("/{userId}")
+    public ResponseEntity<UserResponse> getUserById(@PathVariable UUID userId) {
+        UserResponse response = userService.getUserById(userId);
+        return ResponseEntity.ok(response);
+    }
 
-        return new UserResponse(
-                user.getId(),
-                user.getEmail(),
-                user.getStatus().name(),
-                roleCodes
-        );
+    @GetMapping
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
+        List<UserResponse> responses = userService.getAllUsers();
+        return ResponseEntity.ok(responses);
     }
 }

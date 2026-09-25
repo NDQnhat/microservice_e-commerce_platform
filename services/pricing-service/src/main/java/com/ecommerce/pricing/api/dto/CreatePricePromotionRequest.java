@@ -1,5 +1,6 @@
 package com.ecommerce.pricing.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 
@@ -10,16 +11,20 @@ import java.util.UUID;
 public class CreatePricePromotionRequest {
 
     @NotNull(message = "SKU ID is required")
+    @JsonProperty("sku_id")
     private UUID skuId;
 
     @NotNull(message = "Sale price is required")
     @DecimalMin(value = "0.01", message = "Sale price must be greater than 0")
+    @JsonProperty("sale_price")
     private BigDecimal salePrice;
 
     @NotNull(message = "Start timestamp is required")
+    @JsonProperty("start_at")
     private Instant startAt;
 
     @NotNull(message = "End timestamp is required")
+    @JsonProperty("end_at")
     private Instant endAt;
 
     public CreatePricePromotionRequest() {

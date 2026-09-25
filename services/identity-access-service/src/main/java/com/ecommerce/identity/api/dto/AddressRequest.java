@@ -5,6 +5,7 @@ import java.util.UUID;
 
 public class AddressRequest {
 
+    @com.fasterxml.jackson.annotation.JsonProperty("recipient_name")
     @NotBlank(message = "Recipient name is required")
     private String recipientName;
 
@@ -25,6 +26,7 @@ public class AddressRequest {
     @NotBlank(message = "City is required")
     private String city;
 
+    @com.fasterxml.jackson.annotation.JsonProperty("is_default")
     private boolean isDefault;
 
     public AddressRequest() {

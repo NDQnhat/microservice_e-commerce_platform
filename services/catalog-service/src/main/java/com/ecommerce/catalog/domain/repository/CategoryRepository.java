@@ -14,5 +14,9 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     Optional<Category> findBySlug(String slug);
     boolean existsByName(String name);
     boolean existsBySlug(String slug);
+    boolean existsByNameAndIdNot(String name, UUID id);
+    boolean existsBySlugAndIdNot(String slug, UUID id);
     List<Category> findByStatus(CategoryStatus status);
+    List<Category> findByParentCategoryId(UUID parentCategoryId);
+    boolean existsByParentCategoryId(UUID parentCategoryId);
 }
