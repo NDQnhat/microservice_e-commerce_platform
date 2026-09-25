@@ -1,16 +1,20 @@
 package com.ecommerce.inventory.api.dto;
 
 import com.ecommerce.inventory.domain.model.AdjustmentReasonCode;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotNull;
 
 public class AdjustInventoryRequest {
 
     @NotNull(message = "Delta is required")
+    @JsonProperty("delta")
     private Integer delta;
 
     @NotNull(message = "Reason code is required")
+    @JsonProperty("reason_code")
     private AdjustmentReasonCode reasonCode;
 
+    @JsonProperty("note")
     private String note;
 
     public AdjustInventoryRequest() {

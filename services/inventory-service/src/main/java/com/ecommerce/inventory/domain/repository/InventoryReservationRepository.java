@@ -13,6 +13,9 @@ import java.util.UUID;
 @Repository
 public interface InventoryReservationRepository extends JpaRepository<InventoryReservation, UUID> {
     List<InventoryReservation> findByOrderId(UUID orderId);
+    List<InventoryReservation> findByOrderIdAndStatus(UUID orderId, ReservationStatus status);
     Optional<InventoryReservation> findByOrderIdAndSkuId(UUID orderId, UUID skuId);
     List<InventoryReservation> findByStatusAndExpiresAtBefore(ReservationStatus status, Instant now);
+    boolean existsByOrderId(UUID orderId);
+    boolean existsByOrderIdAndStatus(UUID orderId, ReservationStatus status);
 }

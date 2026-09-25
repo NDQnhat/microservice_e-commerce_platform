@@ -45,6 +45,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler({
+            IllegalArgumentException.class,
+            org.springframework.web.bind.MissingRequestHeaderException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleBadRequestException(Exception ex, HttpServletRequest request) {
+        ApiErrorResponse response = new ApiErrorResponse(
+                "urn:problem-type:validation-error",
+                "Bad Request",
+                HttpStatus.BAD_REQUEST.value(),
+                ex.getMessage(),
+                request.getRequestURI(),
+                "VALIDATION_ERROR",
+                null,
+                CorrelationContext.getCorrelationId(),
+                null
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
     @ExceptionHandler(BusinessRuleException.class)
     public ResponseEntity<ApiErrorResponse> handleBusinessRuleException(BusinessRuleException ex,
                                                                         HttpServletRequest request) {

@@ -1,18 +1,36 @@
 package com.ecommerce.inventory.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.UUID;
 
 public class InventoryAdjustmentLogDto {
 
+    @JsonProperty("id")
     private UUID id;
+
+    @JsonProperty("sku_id")
     private UUID skuId;
+
+    @JsonProperty("actor_id")
     private UUID actorId;
+
+    @JsonProperty("quantity_before")
     private int quantityBefore;
+
+    @JsonProperty("quantity_after")
     private int quantityAfter;
+
+    @JsonProperty("delta")
     private int delta;
+
+    @JsonProperty("reason_code")
     private String reasonCode;
+
+    @JsonProperty("note")
     private String note;
+
+    @JsonProperty("created_at")
     private Instant createdAt;
 
     public InventoryAdjustmentLogDto() {

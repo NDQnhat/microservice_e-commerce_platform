@@ -52,3 +52,14 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+
+jwt:
+  secret: ${JWT_SECRET:c3VwZXItc2VjcmV0LWtleS1mb3ItZGlzdHJpYnV0ZWQtZWNvbW1lcmNl}
+
+services:
+  inventory:
+    url: ${INVENTORY_SERVICE_URL:http://localhost:8085}
+  pricing:
+    url: ${PRICING_SERVICE_URL:http://localhost:8083}
+  cart:
+    url: ${CART_SERVICE_URL:http://localhost:8084}

@@ -1,8 +1,8 @@
 package com.ecommerce.order.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
@@ -11,26 +11,33 @@ import java.util.UUID;
 public class OrderItemRequest {
 
     @NotNull(message = "SKU ID is required")
+    @JsonProperty("sku_id")
     private UUID skuId;
 
-    @NotBlank(message = "Product name snapshot is required")
+    @JsonProperty("product_name")
     private String productName;
 
-    @NotBlank(message = "SKU code snapshot is required")
+    @JsonProperty("sku_code")
     private String skuCode;
 
-    @NotBlank(message = "Attribute snapshot is required")
+    @JsonProperty("attribute_snapshot")
     private String attributeSnapshot;
 
-    @NotNull(message = "Unit price snapshot is required")
     @DecimalMin(value = "0.01", message = "Unit price must be greater than 0")
+    @JsonProperty("unit_price")
     private BigDecimal unitPrice;
 
     @NotNull(message = "Quantity is required")
     @Min(value = 1, message = "Quantity must be at least 1")
+    @JsonProperty("quantity")
     private int quantity;
 
     public OrderItemRequest() {
+    }
+
+    public OrderItemRequest(UUID skuId, int quantity) {
+        this.skuId = skuId;
+        this.quantity = quantity;
     }
 
     public OrderItemRequest(UUID skuId, String productName, String skuCode,

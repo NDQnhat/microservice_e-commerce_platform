@@ -1,14 +1,20 @@
 package com.ecommerce.cart.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 public class CartDto {
 
     private UUID id;
+
+    @JsonProperty("customer_id")
     private UUID customerId;
+
     private String status;
-    private List<CartItemDto> items;
+
+    private List<CartItemDto> items = new ArrayList<>();
 
     public CartDto() {
     }
@@ -17,7 +23,7 @@ public class CartDto {
         this.id = id;
         this.customerId = customerId;
         this.status = status;
-        this.items = items;
+        this.items = items != null ? items : new ArrayList<>();
     }
 
     public UUID getId() {
@@ -49,6 +55,6 @@ public class CartDto {
     }
 
     public void setItems(List<CartItemDto> items) {
-        this.items = items;
+        this.items = items != null ? items : new ArrayList<>();
     }
 }

@@ -1,5 +1,6 @@
 package com.ecommerce.order.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -7,24 +8,61 @@ import java.util.UUID;
 
 public class OrderResponse {
 
+    @JsonProperty("id")
     private UUID id;
+
+    @JsonProperty("customer_id")
     private UUID customerId;
+
+    @JsonProperty("status")
     private String status;
+
+    @JsonProperty("idempotency_key")
     private String idempotencyKey;
+
+    @JsonProperty("shipping_recipient_name")
     private String shippingRecipientName;
+
+    @JsonProperty("shipping_phone")
     private String shippingPhone;
+
+    @JsonProperty("shipping_line1")
     private String shippingLine1;
+
+    @JsonProperty("shipping_line2")
     private String shippingLine2;
+
+    @JsonProperty("shipping_ward")
     private String shippingWard;
+
+    @JsonProperty("shipping_district")
     private String shippingDistrict;
+
+    @JsonProperty("shipping_city")
     private String shippingCity;
+
+    @JsonProperty("subtotal_amount")
     private BigDecimal subtotalAmount;
+
+    @JsonProperty("shipping_fee_amount")
     private BigDecimal shippingFeeAmount;
+
+    @JsonProperty("discount_amount")
     private BigDecimal discountAmount;
+
+    @JsonProperty("grand_total_amount")
     private BigDecimal grandTotalAmount;
+
+    @JsonProperty("currency")
     private String currency;
+
+    @JsonProperty("placed_at")
     private Instant placedAt;
+
+    @JsonProperty("items")
     private List<OrderItemResponse> items;
+
+    @JsonProperty("timeline")
     private List<OrderTimelineEventResponse> timeline;
 
     public OrderResponse() {

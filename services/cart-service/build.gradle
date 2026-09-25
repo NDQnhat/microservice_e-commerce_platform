@@ -10,6 +10,10 @@ dependencies {
     implementation libs.spring.boot.starter.data.redis
     implementation libs.spring.boot.starter.validation
     implementation libs.spring.boot.starter.actuator
+    implementation libs.spring.boot.starter.security
+    implementation libs.jjwt.api
+    runtimeOnly libs.jjwt.impl
+    runtimeOnly libs.jjwt.jackson
     implementation libs.spring.cloud.starter.netflix.eureka.client
     implementation libs.postgresql
     implementation libs.flyway.core

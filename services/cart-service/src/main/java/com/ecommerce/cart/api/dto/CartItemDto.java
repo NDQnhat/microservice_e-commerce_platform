@@ -1,11 +1,15 @@
 package com.ecommerce.cart.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.UUID;
 
 public class CartItemDto {
 
     private UUID id;
+
+    @JsonProperty("sku_id")
     private UUID skuId;
+
     private int quantity;
 
     public CartItemDto() {

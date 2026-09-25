@@ -1,241 +1,136 @@
 package com.ecommerce.order.api.controller;
 
-import com.ecommerce.common.context.CorrelationContext;
-import com.ecommerce.common.error.NotFoundException;
-import com.ecommerce.order.api.dto.*;
-import com.ecommerce.order.domain.model.*;
-import com.ecommerce.order.domain.repository.OrderItemRepository;
-import com.ecommerce.order.domain.repository.OrderRepository;
-import com.ecommerce.order.domain.repository.OrderTimelineEventRepository;
-import com.ecommerce.order.domain.repository.OutboxEventRepository;
-import com.ecommerce.order.domain.statemachine.OrderStateMachine;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ecommerce.common.error.AuthenticationFailedException;
+import com.ecommerce.common.error.AuthorizationFailedException;
+import com.ecommerce.order.api.dto.CancelOrderRequest;
+import com.ecommerce.order.api.dto.CreateOrderRequest;
+import com.ecommerce.order.api.dto.OrderResponse;
+import com.ecommerce.order.security.SecurityUtils;
+import com.ecommerce.order.security.UserPrincipal;
+import com.ecommerce.order.service.CreateOrderResult;
+import com.ecommerce.order.service.OrderService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/v1/orders")
+@RequestMapping("/api/v1")
 public class OrderController {
 
-    private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final OrderTimelineEventRepository timelineRepository;
-    private final OutboxEventRepository outboxEventRepository;
-    private final OrderStateMachine stateMachine;
-    private final ObjectMapper objectMapper;
+    private final OrderService orderService;
 
-    public OrderController(OrderRepository orderRepository,
-                           OrderItemRepository orderItemRepository,
-                           OrderTimelineEventRepository timelineRepository,
-                           OutboxEventRepository outboxEventRepository,
-                           OrderStateMachine stateMachine,
-                           ObjectMapper objectMapper) {
-        this.orderRepository = orderRepository;
-        this.orderItemRepository = orderItemRepository;
-        this.timelineRepository = timelineRepository;
-        this.outboxEventRepository = outboxEventRepository;
-        this.stateMachine = stateMachine;
-        this.objectMapper = objectMapper;
+    public OrderController(OrderService orderService) {
+        this.orderService = orderService;
     }
 
-    @PostMapping
-    @Transactional
+    // ==========================================
+    // API-ORD-001: Checkout / Create Order
+    // ==========================================
+    @PostMapping({"/orders", "/customers/{customerId}/orders"})
     public ResponseEntity<OrderResponse> createOrder(
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody CreateOrderRequest request) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            @Valid @RequestBody(required = false) CreateOrderRequest request,
+            Authentication authentication) {
 
-        // BR-010: Idempotency replay check
-        Optional<Order> existingOrder = orderRepository.findByIdempotencyKey(idempotencyKey);
-        if (existingOrder.isPresent()) {
-            return ResponseEntity.ok(mapToResponse(existingOrder.get()));
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key header is required per NFR-IDEMPOTENCY-001");
         }
 
-        BigDecimal subtotal = BigDecimal.ZERO;
-        for (OrderItemRequest item : request.getItems()) {
-            BigDecimal lineTotal = item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
-            subtotal = subtotal.add(lineTotal);
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication, request != null ? request.getCustomerId() : null);
+
+        CreateOrderResult result = orderService.createOrder(customerId, idempotencyKey, request != null ? request : new CreateOrderRequest());
+
+        if (result.isReplay()) {
+            return ResponseEntity.ok(result.getResponse());
         }
+        return ResponseEntity.status(HttpStatus.CREATED).body(result.getResponse());
+    }
 
-        BigDecimal discount = BigDecimal.ZERO;
-        BigDecimal grandTotal = subtotal.add(request.getShippingFeeAmount()).subtract(discount);
+    // ==========================================
+    // API-ORD-002: Get Order Detail & Timeline
+    // ==========================================
+    @GetMapping({"/orders/{orderId}", "/customers/{customerId}/orders/{orderId}"})
+    public ResponseEntity<OrderResponse> getOrder(
+            @PathVariable("orderId") UUID orderId,
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            Authentication authentication) {
 
-        Order order = new Order(
-                request.getCustomerId(),
-                idempotencyKey,
-                request.getShippingRecipientName(),
-                request.getShippingPhone(),
-                request.getShippingLine1(),
-                request.getShippingLine2(),
-                request.getShippingWard(),
-                request.getShippingDistrict(),
-                request.getShippingCity(),
-                subtotal,
-                request.getShippingFeeAmount(),
-                discount,
-                grandTotal,
-                request.getCurrency()
-        );
-
-        Order savedOrder = orderRepository.save(order);
-
-        for (OrderItemRequest itemReq : request.getItems()) {
-            OrderItem orderItem = new OrderItem(
-                    savedOrder,
-                    itemReq.getSkuId(),
-                    itemReq.getProductName(),
-                    itemReq.getSkuCode(),
-                    itemReq.getAttributeSnapshot(),
-                    itemReq.getUnitPrice(),
-                    itemReq.getQuantity()
-            );
-            orderItemRepository.save(orderItem);
-            savedOrder.getItems().add(orderItem);
-        }
-
-        // BR-008: Record initial timeline event (null -> RESERVED)
-        OrderTimelineEvent initialTimeline = new OrderTimelineEvent(
-                savedOrder,
-                null,
-                OrderStatus.RESERVED,
-                request.getCustomerId(),
-                TimelineActorType.CUSTOMER,
-                "Order created via checkout"
-        );
-        timelineRepository.save(initialTimeline);
-        savedOrder.getTimelineEvents().add(initialTimeline);
-
-        // Transactional Outbox: OrderCreated event
+        boolean isAdmin = SecurityUtils.isBackofficeAdmin();
+        UUID customerId = null;
         try {
-            String payloadJson = objectMapper.writeValueAsString(savedOrder.getId());
-            OutboxEventRecord outbox = new OutboxEventRecord(
-                    "Order",
-                    savedOrder.getId().toString(),
-                    "OrderCreated",
-                    payloadJson,
-                    CorrelationContext.getCorrelationId()
-            );
-            outboxEventRepository.save(outbox);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize OrderCreated event", e);
+            customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication, null);
+        } catch (Exception ex) {
+            if (!isAdmin) {
+                throw ex;
+            }
         }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToResponse(savedOrder));
+        return ResponseEntity.ok(orderService.getOrder(orderId, customerId, isAdmin));
     }
 
-    @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Order not found: " + orderId));
-
-        return ResponseEntity.ok(mapToResponse(order));
-    }
-
-    @PostMapping("/{orderId}/cancel")
-    @Transactional
+    // ==========================================
+    // API-ORD-003: Cancel Order (Customer/Admin)
+    // ==========================================
+    @PostMapping({"/orders/{orderId}/cancel", "/customers/{customerId}/orders/{orderId}/cancel"})
     public ResponseEntity<OrderResponse> cancelOrder(
-            @PathVariable UUID orderId,
-            @RequestParam UUID customerId,
-            @Valid @RequestBody CancelOrderRequest request) {
+            @PathVariable("orderId") UUID orderId,
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            @RequestBody(required = false) CancelOrderRequest request,
+            Authentication authentication) {
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Order not found: " + orderId));
-
-        // State Machine & BR-006 validation
-        stateMachine.validateTransition(order.getStatus(), OrderStatus.CANCELLED);
-
-        OrderStatus fromStatus = order.getStatus();
-        order.setStatus(OrderStatus.CANCELLED);
-        Order updated = orderRepository.save(order);
-
-        OrderTimelineEvent cancelTimeline = new OrderTimelineEvent(
-                updated,
-                fromStatus,
-                OrderStatus.CANCELLED,
-                customerId,
-                TimelineActorType.CUSTOMER,
-                "Cancelled by customer: " + request.getReason()
-        );
-        timelineRepository.save(cancelTimeline);
-        updated.getTimelineEvents().add(cancelTimeline);
-
-        // Transactional Outbox: OrderCancelled event
+        boolean isAdmin = SecurityUtils.isBackofficeAdmin();
+        UUID customerId = null;
         try {
-            String payloadJson = objectMapper.writeValueAsString(updated.getId());
-            OutboxEventRecord outbox = new OutboxEventRecord(
-                    "Order",
-                    updated.getId().toString(),
-                    "OrderCancelled",
-                    payloadJson,
-                    CorrelationContext.getCorrelationId()
-            );
-            outboxEventRepository.save(outbox);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize OrderCancelled event", e);
+            customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication, null);
+        } catch (Exception ex) {
+            if (!isAdmin) {
+                throw ex;
+            }
         }
 
-        return ResponseEntity.ok(mapToResponse(updated));
+        return ResponseEntity.ok(orderService.cancelOrder(orderId, customerId, isAdmin, request));
     }
 
-    private OrderResponse mapToResponse(Order order) {
-        OrderResponse response = new OrderResponse();
-        response.setId(order.getId());
-        response.setCustomerId(order.getCustomerId());
-        response.setStatus(order.getStatus().name());
-        response.setIdempotencyKey(order.getIdempotencyKey());
-        response.setShippingRecipientName(order.getShippingRecipientName());
-        response.setShippingPhone(order.getShippingPhone());
-        response.setShippingLine1(order.getShippingLine1());
-        response.setShippingLine2(order.getShippingLine2());
-        response.setShippingWard(order.getShippingWard());
-        response.setShippingDistrict(order.getShippingDistrict());
-        response.setShippingCity(order.getShippingCity());
-        response.setSubtotalAmount(order.getSubtotalAmount());
-        response.setShippingFeeAmount(order.getShippingFeeAmount());
-        response.setDiscountAmount(order.getDiscountAmount());
-        response.setGrandTotalAmount(order.getGrandTotalAmount());
-        response.setCurrency(order.getCurrency());
-        response.setPlacedAt(order.getPlacedAt());
+    // ==========================================
+    // Customer ID Resolution & Access Control
+    // ==========================================
+    private UUID resolveCustomerId(UUID pathCustomerId, UUID paramCustomerId, Authentication authentication, UUID bodyCustomerId) {
+        UUID explicitId = pathCustomerId != null ? pathCustomerId : (paramCustomerId != null ? paramCustomerId : bodyCustomerId);
 
-        List<OrderItem> items = order.getItems().isEmpty()
-                ? orderItemRepository.findByOrderId(order.getId())
-                : order.getItems();
+        Authentication auth = authentication != null ? authentication : SecurityContextHolder.getContext().getAuthentication();
 
-        response.setItems(items.stream().map(i -> new OrderItemResponse(
-                i.getId(),
-                i.getSkuId(),
-                i.getProductNameSnapshot(),
-                i.getSkuCodeSnapshot(),
-                i.getAttributeSnapshot(),
-                i.getUnitPriceSnapshot(),
-                i.getQuantity(),
-                i.getLineTotal()
-        )).collect(Collectors.toList()));
+        if (auth != null && auth.getPrincipal() instanceof UserPrincipal principal) {
+            if (explicitId != null) {
+                boolean isAdmin = principal.getAuthorities().stream()
+                        .anyMatch(a -> a.getAuthority().contains("ADMIN"));
+                if (!isAdmin && !principal.getId().equals(explicitId)) {
+                    throw new AuthorizationFailedException("Access denied: cannot operate on another customer's order");
+                }
+                return explicitId;
+            }
+            return principal.getId();
+        }
 
-        List<OrderTimelineEvent> events = order.getTimelineEvents().isEmpty()
-                ? timelineRepository.findByOrderIdOrderByOccurredAtAsc(order.getId())
-                : order.getTimelineEvents();
+        if (explicitId != null) {
+            return explicitId;
+        }
 
-        response.setTimeline(events.stream().map(t -> new OrderTimelineEventResponse(
-                t.getId(),
-                t.getOrder().getId(),
-                t.getFromStatus() != null ? t.getFromStatus().name() : null,
-                t.getToStatus().name(),
-                t.getActorId(),
-                t.getActorType().name(),
-                t.getNote(),
-                t.getOccurredAt()
-        )).collect(Collectors.toList()));
+        if (auth != null && auth.getPrincipal() instanceof String principalStr) {
+            try {
+                return UUID.fromString(principalStr);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
 
-        return response;
+        throw new AuthenticationFailedException("Authentication required to access order");
     }
 }

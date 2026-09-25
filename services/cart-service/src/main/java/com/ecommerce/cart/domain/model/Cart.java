@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Entity
@@ -86,6 +87,45 @@ public class Cart {
     }
 
     public void setItems(List<CartItem> items) {
-        this.items = items;
+        this.items = items != null ? items : new ArrayList<>();
+    }
+
+    public Optional<CartItem> findItemBySkuId(UUID skuId) {
+        if (skuId == null) return Optional.empty();
+        return items.stream().filter(item -> skuId.equals(item.getSkuId())).findFirst();
+    }
+
+    public Optional<CartItem> findItemById(UUID itemId) {
+        if (itemId == null) return Optional.empty();
+        return items.stream().filter(item -> itemId.equals(item.getId())).findFirst();
+    }
+
+    public void addItem(CartItem item) {
+        if (item != null) {
+            this.items.add(item);
+            item.setCart(this);
+            this.updatedAt = Instant.now();
+        }
+    }
+
+    public void removeItem(CartItem item) {
+        if (item != null) {
+            this.items.remove(item);
+            item.setCart(null);
+            this.updatedAt = Instant.now();
+        }
+    }
+
+    public void clearItems() {
+        for (CartItem item : this.items) {
+            item.setCart(null);
+        }
+        this.items.clear();
+        this.updatedAt = Instant.now();
+    }
+
+    public void markAsCheckedOut() {
+        this.status = CartStatus.CHECKED_OUT;
+        this.updatedAt = Instant.now();
     }
 }

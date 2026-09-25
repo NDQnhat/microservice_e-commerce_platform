@@ -113,6 +113,10 @@ public class Order {
         return customerId;
     }
 
+    public void setCustomerId(UUID customerId) {
+        this.customerId = customerId;
+    }
+
     public OrderStatus getStatus() {
         return status;
     }
@@ -191,5 +195,13 @@ public class Order {
 
     public void setTimelineEvents(List<OrderTimelineEvent> timelineEvents) {
         this.timelineEvents = timelineEvents;
+    }
+
+    public void addItem(OrderItem item) {
+        items.add(item);
+    }
+
+    public void addTimelineEvent(OrderTimelineEvent event) {
+        timelineEvents.add(event);
     }
 }

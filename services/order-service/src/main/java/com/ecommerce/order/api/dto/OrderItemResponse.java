@@ -1,17 +1,33 @@
 package com.ecommerce.order.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.UUID;
 
 public class OrderItemResponse {
 
+    @JsonProperty("id")
     private UUID id;
+
+    @JsonProperty("sku_id")
     private UUID skuId;
+
+    @JsonProperty("product_name")
     private String productNameSnapshot;
+
+    @JsonProperty("sku_code")
     private String skuCodeSnapshot;
+
+    @JsonProperty("attribute_snapshot")
     private String attributeSnapshot;
+
+    @JsonProperty("unit_price")
     private BigDecimal unitPriceSnapshot;
+
+    @JsonProperty("quantity")
     private int quantity;
+
+    @JsonProperty("line_total")
     private BigDecimal lineTotal;
 
     public OrderItemResponse() {

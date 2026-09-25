@@ -30,7 +30,16 @@ class OrderStateMachineTest {
     }
 
     @Test
-    @DisplayName("BR-001: CANCELLED can never transition to any other state")
+    @DisplayName("ORD-T03, T04, T05, T07 valid alternative & cancellation branches before cutoff")
+    void shouldAllowAlternativeTransitionsBeforeCutoff() {
+        assertThat(stateMachine.isValidTransition(OrderStatus.RESERVED, OrderStatus.PAYMENT_FAILED)).isTrue();
+        assertThat(stateMachine.isValidTransition(OrderStatus.RESERVED, OrderStatus.EXPIRED)).isTrue();
+        assertThat(stateMachine.isValidTransition(OrderStatus.RESERVED, OrderStatus.CANCELLED)).isTrue();
+        assertThat(stateMachine.isValidTransition(OrderStatus.PAID, OrderStatus.CANCELLED)).isTrue();
+    }
+
+    @Test
+    @DisplayName("BR-001: CANCELLED can never transition to any other state (strictly terminal)")
     void shouldRejectTransitionFromCancelled() {
         for (OrderStatus target : OrderStatus.values()) {
             assertThatThrownBy(() -> stateMachine.validateTransition(OrderStatus.CANCELLED, target))
@@ -40,18 +49,42 @@ class OrderStateMachineTest {
     }
 
     @Test
-    @DisplayName("BR-006: PACKING cannot transition to CANCELLED")
+    @DisplayName("BR-006: PACKING, SHIPPED, and COMPLETED cannot transition to CANCELLED")
     void shouldRejectCancellationAfterPacking() {
-        assertThatThrownBy(() -> stateMachine.validateTransition(OrderStatus.PACKING, OrderStatus.CANCELLED))
-                .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("BR-006");
+        for (OrderStatus postCutoff : new OrderStatus[]{OrderStatus.PACKING, OrderStatus.SHIPPED, OrderStatus.COMPLETED}) {
+            assertThatThrownBy(() -> stateMachine.validateTransition(postCutoff, OrderStatus.CANCELLED))
+                    .isInstanceOf(BusinessRuleException.class)
+                    .hasMessageContaining("BR-006");
+        }
     }
 
     @Test
-    @DisplayName("BR-007: Intermediate states cannot be skipped (e.g. RESERVED -> COMPLETED)")
+    @DisplayName("BR-007: Intermediate states cannot be skipped (e.g. RESERVED -> COMPLETED, RESERVED -> PACKING)")
     void shouldRejectSkippingIntermediateStates() {
         assertThatThrownBy(() -> stateMachine.validateTransition(OrderStatus.RESERVED, OrderStatus.COMPLETED))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("BR-007");
+
+        assertThatThrownBy(() -> stateMachine.validateTransition(OrderStatus.RESERVED, OrderStatus.PACKING))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("BR-007");
+
+        assertThatThrownBy(() -> stateMachine.validateTransition(OrderStatus.PAID, OrderStatus.SHIPPED))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("BR-007");
+    }
+
+    @Test
+    @DisplayName("Terminal States: COMPLETED, PAYMENT_FAILED, EXPIRED, CANCELLED are terminal")
+    void verifyTerminalStates() {
+        assertThat(OrderStatus.COMPLETED.isTerminal()).isTrue();
+        assertThat(OrderStatus.PAYMENT_FAILED.isTerminal()).isTrue();
+        assertThat(OrderStatus.EXPIRED.isTerminal()).isTrue();
+        assertThat(OrderStatus.CANCELLED.isTerminal()).isTrue();
+
+        assertThat(OrderStatus.RESERVED.isTerminal()).isFalse();
+        assertThat(OrderStatus.PAID.isTerminal()).isFalse();
+        assertThat(OrderStatus.PACKING.isTerminal()).isFalse();
+        assertThat(OrderStatus.SHIPPED.isTerminal()).isFalse();
     }
 }

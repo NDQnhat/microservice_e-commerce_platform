@@ -56,8 +56,8 @@ public class OrderStateMachine {
             if (from == OrderStatus.CANCELLED) {
                 throw new BusinessRuleException("BR-001", "An order can never transition from CANCELLED to any other state.");
             }
-            if (from == OrderStatus.PACKING && to == OrderStatus.CANCELLED) {
-                throw new BusinessRuleException("BR-006", "Cancellation cutoff exceeded; order is already in PACKING state.");
+            if (to == OrderStatus.CANCELLED && (from == OrderStatus.PACKING || from == OrderStatus.SHIPPED || from == OrderStatus.COMPLETED)) {
+                throw new BusinessRuleException("BR-006", String.format("Cancellation cutoff exceeded; order is already in %s state.", from));
             }
             throw new BusinessRuleException("BR-007", String.format("Invalid order state transition from %s to %s.", from, to));
         }

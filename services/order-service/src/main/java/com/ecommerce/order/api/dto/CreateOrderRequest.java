@@ -1,10 +1,7 @@
 package com.ecommerce.order.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -12,41 +9,61 @@ import java.util.UUID;
 
 public class CreateOrderRequest {
 
-    @NotNull(message = "Customer ID is required")
+    @JsonProperty("customer_id")
     private UUID customerId;
 
-    @NotBlank(message = "Recipient name is required")
+    @JsonProperty("cart_id")
+    private UUID cartId;
+
+    @JsonProperty("shipping_recipient_name")
     private String shippingRecipientName;
 
-    @NotBlank(message = "Phone is required")
+    @JsonProperty("shipping_phone")
     private String shippingPhone;
 
-    @NotBlank(message = "Address line 1 is required")
+    @JsonProperty("shipping_line1")
     private String shippingLine1;
 
+    @JsonProperty("shipping_line2")
     private String shippingLine2;
 
-    @NotBlank(message = "Ward is required")
+    @JsonProperty("shipping_ward")
     private String shippingWard;
 
-    @NotBlank(message = "District is required")
+    @JsonProperty("shipping_district")
     private String shippingDistrict;
 
-    @NotBlank(message = "City is required")
+    @JsonProperty("shipping_city")
     private String shippingCity;
 
-    @NotNull(message = "Shipping fee is required")
-    @DecimalMin(value = "0.00", message = "Shipping fee cannot be negative")
-    private BigDecimal shippingFeeAmount;
+    @JsonProperty("shipping_fee_amount")
+    private BigDecimal shippingFeeAmount = BigDecimal.ZERO;
 
-    @NotBlank(message = "Currency is required")
-    private String currency;
+    @JsonProperty("currency")
+    private String currency = "VND";
 
-    @NotEmpty(message = "Order must have at least one item")
     @Valid
+    @JsonProperty("items")
     private List<OrderItemRequest> items;
 
     public CreateOrderRequest() {
+    }
+
+    public CreateOrderRequest(UUID customerId, String shippingRecipientName, String shippingPhone,
+                              String shippingLine1, String shippingLine2, String shippingWard,
+                              String shippingDistrict, String shippingCity, BigDecimal shippingFeeAmount,
+                              String currency, List<OrderItemRequest> items) {
+        this.customerId = customerId;
+        this.shippingRecipientName = shippingRecipientName;
+        this.shippingPhone = shippingPhone;
+        this.shippingLine1 = shippingLine1;
+        this.shippingLine2 = shippingLine2;
+        this.shippingWard = shippingWard;
+        this.shippingDistrict = shippingDistrict;
+        this.shippingCity = shippingCity;
+        this.shippingFeeAmount = shippingFeeAmount != null ? shippingFeeAmount : BigDecimal.ZERO;
+        this.currency = currency != null ? currency : "VND";
+        this.items = items;
     }
 
     public UUID getCustomerId() {
@@ -55,6 +72,14 @@ public class CreateOrderRequest {
 
     public void setCustomerId(UUID customerId) {
         this.customerId = customerId;
+    }
+
+    public UUID getCartId() {
+        return cartId;
+    }
+
+    public void setCartId(UUID cartId) {
+        this.cartId = cartId;
     }
 
     public String getShippingRecipientName() {
@@ -114,7 +139,7 @@ public class CreateOrderRequest {
     }
 
     public BigDecimal getShippingFeeAmount() {
-        return shippingFeeAmount;
+        return shippingFeeAmount != null ? shippingFeeAmount : BigDecimal.ZERO;
     }
 
     public void setShippingFeeAmount(BigDecimal shippingFeeAmount) {
@@ -122,7 +147,7 @@ public class CreateOrderRequest {
     }
 
     public String getCurrency() {
-        return currency;
+        return currency != null ? currency : "VND";
     }
 
     public void setCurrency(String currency) {

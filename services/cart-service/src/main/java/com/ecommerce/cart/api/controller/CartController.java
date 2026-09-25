@@ -1,109 +1,125 @@
 package com.ecommerce.cart.api.controller;
 
-import com.ecommerce.cart.api.dto.*;
-import com.ecommerce.cart.domain.model.Cart;
-import com.ecommerce.cart.domain.model.CartItem;
-import com.ecommerce.cart.domain.model.CartStatus;
-import com.ecommerce.cart.domain.repository.CartItemRepository;
-import com.ecommerce.cart.domain.repository.CartRepository;
-import com.ecommerce.common.error.NotFoundException;
+import com.ecommerce.cart.api.dto.AddToCartRequest;
+import com.ecommerce.cart.api.dto.CartDto;
+import com.ecommerce.cart.api.dto.UpdateCartItemRequest;
+import com.ecommerce.cart.security.UserPrincipal;
+import com.ecommerce.cart.service.CartService;
+import com.ecommerce.common.error.AuthenticationFailedException;
+import com.ecommerce.common.error.AuthorizationFailedException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/v1/cart")
+@RequestMapping("/api/v1")
 public class CartController {
 
-    private final CartRepository cartRepository;
-    private final CartItemRepository cartItemRepository;
+    private final CartService cartService;
 
-    public CartController(CartRepository cartRepository, CartItemRepository cartItemRepository) {
-        this.cartRepository = cartRepository;
-        this.cartItemRepository = cartItemRepository;
+    public CartController(CartService cartService) {
+        this.cartService = cartService;
     }
 
-    @GetMapping
-    public ResponseEntity<CartDto> getCart(@RequestParam UUID customerId) {
-        Cart cart = getOrCreateActiveCart(customerId);
-        return ResponseEntity.ok(mapToDto(cart));
+    // ==========================================
+    // API-CRT-001: Get active customer cart
+    // ==========================================
+    @GetMapping({"/cart", "/customers/{customerId}/cart"})
+    public ResponseEntity<CartDto> getCart(
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            Authentication authentication) {
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication);
+        return ResponseEntity.ok(cartService.getCart(customerId));
     }
 
-    @PostMapping("/items")
-    @Transactional
-    public ResponseEntity<CartDto> addItem(@RequestParam UUID customerId,
-                                           @Valid @RequestBody AddToCartRequest request) {
-        Cart cart = getOrCreateActiveCart(customerId);
+    // ==========================================
+    // API-CRT-002: Add SKU to cart
+    // ==========================================
+    @PostMapping({"/cart/items", "/customers/{customerId}/cart/items"})
+    public ResponseEntity<CartDto> addItem(
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            @Valid @RequestBody AddToCartRequest request,
+            Authentication authentication) {
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication);
+        return ResponseEntity.status(HttpStatus.CREATED).body(cartService.addItem(customerId, request));
+    }
 
-        Optional<CartItem> existingItem = cartItemRepository.findByCartIdAndSkuId(cart.getId(), request.getSkuId());
-        if (existingItem.isPresent()) {
-            CartItem item = existingItem.get();
-            item.setQuantity(item.getQuantity() + request.getQuantity());
-            cartItemRepository.save(item);
-        } else {
-            CartItem newItem = new CartItem(cart, request.getSkuId(), request.getQuantity());
-            cartItemRepository.save(newItem);
-            cart.getItems().add(newItem);
+    // ==========================================
+    // API-CRT-003: Update item quantity
+    // ==========================================
+    @PutMapping({"/cart/items/{itemId}", "/customers/{customerId}/cart/items/{itemId}"})
+    public ResponseEntity<CartDto> updateItem(
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @PathVariable("itemId") UUID itemId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            @Valid @RequestBody UpdateCartItemRequest request,
+            Authentication authentication) {
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication);
+        return ResponseEntity.ok(cartService.updateItem(customerId, itemId, request));
+    }
+
+    // ==========================================
+    // API-CRT-004: Remove item from cart
+    // ==========================================
+    @DeleteMapping({"/cart/items/{itemId}", "/customers/{customerId}/cart/items/{itemId}"})
+    public ResponseEntity<CartDto> removeItem(
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @PathVariable("itemId") UUID itemId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            Authentication authentication) {
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication);
+        return ResponseEntity.ok(cartService.removeItem(customerId, itemId));
+    }
+
+    // ==========================================
+    // API-CRT-005: Clear customer cart
+    // ==========================================
+    @DeleteMapping({"/cart", "/customers/{customerId}/cart"})
+    public ResponseEntity<CartDto> clearCart(
+            @PathVariable(value = "customerId", required = false) UUID pathCustomerId,
+            @RequestParam(value = "customerId", required = false) UUID paramCustomerId,
+            Authentication authentication) {
+        UUID customerId = resolveCustomerId(pathCustomerId, paramCustomerId, authentication);
+        return ResponseEntity.ok(cartService.clearCart(customerId));
+    }
+
+    // ==========================================
+    // Customer ID Resolution & Access Control
+    // ==========================================
+    private UUID resolveCustomerId(UUID pathCustomerId, UUID paramCustomerId, Authentication authentication) {
+        UUID targetId = pathCustomerId != null ? pathCustomerId : paramCustomerId;
+
+        Authentication auth = authentication != null ? authentication : org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth != null && auth.getPrincipal() instanceof UserPrincipal principal) {
+            if (targetId != null) {
+                boolean isAdmin = principal.getAuthorities().stream()
+                        .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ADMIN"));
+                if (!isAdmin && !principal.getId().equals(targetId)) {
+                    throw new AuthorizationFailedException("Access denied: cannot access another customer's cart");
+                }
+                return targetId;
+            }
+            return principal.getId();
         }
 
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToDto(cart));
-    }
-
-    @PutMapping("/items/{itemId}")
-    @Transactional
-    public ResponseEntity<CartDto> updateItem(@RequestParam UUID customerId,
-                                              @PathVariable UUID itemId,
-                                              @Valid @RequestBody UpdateCartItemRequest request) {
-        Cart cart = getOrCreateActiveCart(customerId);
-
-        CartItem item = cartItemRepository.findById(itemId)
-                .orElseThrow(() -> new NotFoundException("Cart item not found: " + itemId));
-
-        if (request.getQuantity() == 0) {
-            cart.getItems().remove(item);
-            cartItemRepository.delete(item);
-        } else {
-            item.setQuantity(request.getQuantity());
-            cartItemRepository.save(item);
+        if (targetId != null) {
+            return targetId;
         }
 
-        return ResponseEntity.ok(mapToDto(cart));
-    }
+        if (authentication != null && authentication.getPrincipal() instanceof String principalStr) {
+            try {
+                return UUID.fromString(principalStr);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
 
-    @DeleteMapping("/items/{itemId}")
-    @Transactional
-    public ResponseEntity<CartDto> removeItem(@RequestParam UUID customerId,
-                                              @PathVariable UUID itemId) {
-        Cart cart = getOrCreateActiveCart(customerId);
-
-        CartItem item = cartItemRepository.findById(itemId)
-                .orElseThrow(() -> new NotFoundException("Cart item not found: " + itemId));
-
-        cart.getItems().remove(item);
-        cartItemRepository.delete(item);
-
-        return ResponseEntity.ok(mapToDto(cart));
-    }
-
-    private Cart getOrCreateActiveCart(UUID customerId) {
-        return cartRepository.findByCustomerIdAndStatus(customerId, CartStatus.ACTIVE)
-                .orElseGet(() -> cartRepository.save(new Cart(customerId)));
-    }
-
-    private CartDto mapToDto(Cart cart) {
-        return new CartDto(
-                cart.getId(),
-                cart.getCustomerId(),
-                cart.getStatus().name(),
-                cart.getItems().stream()
-                        .map(i -> new CartItemDto(i.getId(), i.getSkuId(), i.getQuantity()))
-                        .collect(Collectors.toList())
-        );
+        throw new AuthenticationFailedException("Authentication required to access cart");
     }
 }

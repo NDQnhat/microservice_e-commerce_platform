@@ -1,5 +1,6 @@
 package com.ecommerce.inventory.domain.model;
 
+import com.ecommerce.common.error.InvalidStateException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -44,6 +45,31 @@ public class InventoryReservation {
         this.status = ReservationStatus.ACTIVE;
         this.expiresAt = expiresAt;
         this.createdAt = Instant.now();
+    }
+
+    public boolean isExpired(Instant now) {
+        return now.isAfter(expiresAt);
+    }
+
+    public void consume() {
+        if (!this.status.canTransitionTo(ReservationStatus.CONSUMED)) {
+            throw new InvalidStateException("Cannot transition reservation from " + this.status + " to CONSUMED");
+        }
+        this.status = ReservationStatus.CONSUMED;
+    }
+
+    public void release() {
+        if (!this.status.canTransitionTo(ReservationStatus.RELEASED)) {
+            throw new InvalidStateException("Cannot transition reservation from " + this.status + " to RELEASED");
+        }
+        this.status = ReservationStatus.RELEASED;
+    }
+
+    public void expire() {
+        if (!this.status.canTransitionTo(ReservationStatus.EXPIRED)) {
+            throw new InvalidStateException("Cannot transition reservation from " + this.status + " to EXPIRED");
+        }
+        this.status = ReservationStatus.EXPIRED;
     }
 
     public UUID getId() {

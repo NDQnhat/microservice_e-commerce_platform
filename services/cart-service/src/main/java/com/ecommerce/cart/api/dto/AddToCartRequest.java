@@ -1,5 +1,6 @@
 package com.ecommerce.cart.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import java.util.UUID;
@@ -7,6 +8,7 @@ import java.util.UUID;
 public class AddToCartRequest {
 
     @NotNull(message = "SKU ID is required")
+    @JsonProperty("sku_id")
     private UUID skuId;
 
     @NotNull(message = "Quantity is required")

@@ -1,5 +1,6 @@
 package com.ecommerce.inventory.domain.model;
 
+import com.ecommerce.common.error.BusinessRuleException;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -46,6 +47,48 @@ public class Inventory {
 
     public int getQuantityAvailable() {
         return this.quantityOnHand - this.quantityReserved;
+    }
+
+    public void reserve(int quantity) {
+        if (quantity <= 0) {
+            throw new BusinessRuleException("BR-004", "Reservation quantity must be greater than zero");
+        }
+        if (getQuantityAvailable() < quantity) {
+            throw new BusinessRuleException("BR-004", "Insufficient available inventory for SKU: " + skuId +
+                    ". Available: " + getQuantityAvailable() + ", Requested: " + quantity);
+        }
+        this.quantityReserved += quantity;
+        this.updatedAt = Instant.now();
+    }
+
+    public void release(int quantity) {
+        if (quantity < 0) {
+            throw new BusinessRuleException("BR-004", "Release quantity cannot be negative");
+        }
+        this.quantityReserved = Math.max(0, this.quantityReserved - quantity);
+        this.updatedAt = Instant.now();
+    }
+
+    public void commit(int quantity) {
+        if (quantity < 0) {
+            throw new BusinessRuleException("BR-004", "Commit quantity cannot be negative");
+        }
+        this.quantityOnHand = Math.max(0, this.quantityOnHand - quantity);
+        this.quantityReserved = Math.max(0, this.quantityReserved - quantity);
+        this.updatedAt = Instant.now();
+    }
+
+    public void adjust(int delta) {
+        int newOnHand = this.quantityOnHand + delta;
+        if (newOnHand < 0) {
+            throw new BusinessRuleException("BR-004", "Inventory on-hand quantity cannot be negative: " + newOnHand);
+        }
+        if (newOnHand < this.quantityReserved) {
+            throw new BusinessRuleException("BR-004", "Inventory on-hand quantity cannot be less than quantity reserved: " +
+                    newOnHand + " < " + this.quantityReserved);
+        }
+        this.quantityOnHand = newOnHand;
+        this.updatedAt = Instant.now();
     }
 
     public UUID getId() {

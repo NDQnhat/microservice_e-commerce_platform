@@ -1,17 +1,33 @@
 package com.ecommerce.order.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.UUID;
 
 public class OrderTimelineEventResponse {
 
+    @JsonProperty("id")
     private UUID id;
+
+    @JsonProperty("order_id")
     private UUID orderId;
+
+    @JsonProperty("from_status")
     private String fromStatus;
+
+    @JsonProperty("to_status")
     private String toStatus;
+
+    @JsonProperty("actor_id")
     private UUID actorId;
+
+    @JsonProperty("actor_type")
     private String actorType;
+
+    @JsonProperty("note")
     private String note;
+
+    @JsonProperty("occurred_at")
     private Instant occurredAt;
 
     public OrderTimelineEventResponse() {
