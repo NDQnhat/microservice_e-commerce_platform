@@ -88,6 +88,24 @@ public class BusinessConfiguration {
         this.updatedAt = Instant.now();
     }
 
+    public BusinessConfiguration createNextVersion(String newConfigValue, String newDescription, String updatedBy) {
+        Instant now = Instant.now();
+        this.deprecate(now);
+        return new BusinessConfiguration(
+                UUID.randomUUID(),
+                this.configKey,
+                newConfigValue,
+                newDescription != null ? newDescription : this.description,
+                this.version + 1,
+                true,
+                now,
+                null,
+                updatedBy,
+                now,
+                now
+        );
+    }
+
     public UUID getId() {
         return id;
     }
