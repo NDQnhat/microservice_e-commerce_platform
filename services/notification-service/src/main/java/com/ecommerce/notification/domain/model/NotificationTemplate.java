@@ -80,6 +80,23 @@ public class NotificationTemplate {
         this.bodyTemplate = bodyTemplate;
     }
 
+    public NotificationTemplate(String eventCode, String channel, String subject, String bodyTemplate, TemplateStatus status) {
+        this.id = UUID.randomUUID();
+        this.eventCode = eventCode;
+        this.channel = channel;
+        this.subject = subject;
+        this.bodyTemplate = bodyTemplate;
+        this.status = status != null ? status : TemplateStatus.ACTIVE;
+    }
+
+    public void update(String subject, String bodyTemplate, TemplateStatus status) {
+        this.subject = subject;
+        this.bodyTemplate = bodyTemplate;
+        if (status != null) {
+            this.status = status;
+        }
+    }
+
     public TemplateStatus getStatus() {
         return status;
     }

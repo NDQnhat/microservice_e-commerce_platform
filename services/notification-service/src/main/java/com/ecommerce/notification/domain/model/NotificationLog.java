@@ -114,4 +114,10 @@ public class NotificationLog {
     public void setLastAttemptAt(Instant lastAttemptAt) {
         this.lastAttemptAt = lastAttemptAt;
     }
+
+    public void recordAttempt(NotificationDeliveryStatus newStatus) {
+        this.attemptCount++;
+        this.status = newStatus;
+        this.lastAttemptAt = Instant.now();
+    }
 }
