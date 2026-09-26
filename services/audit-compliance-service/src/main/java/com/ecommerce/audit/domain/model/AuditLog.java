@@ -59,6 +59,21 @@ public class AuditLog {
         this.createdAt = Instant.now();
     }
 
+    public AuditLog(UUID id, UUID actorId, String actorRole, AuditActionType actionType,
+                    String entityType, String entityId, String beforeValue,
+                    String afterValue, String reason, Instant createdAt) {
+        this.id = id != null ? id : UUID.randomUUID();
+        this.actorId = actorId;
+        this.actorRole = actorRole;
+        this.actionType = actionType;
+        this.entityType = entityType;
+        this.entityId = entityId;
+        this.beforeValue = beforeValue;
+        this.afterValue = afterValue;
+        this.reason = reason;
+        this.createdAt = createdAt != null ? createdAt : Instant.now();
+    }
+
     public UUID getId() {
         return id;
     }
