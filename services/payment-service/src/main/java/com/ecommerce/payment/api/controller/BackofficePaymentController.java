@@ -1,97 +1,67 @@
 package com.ecommerce.payment.api.controller;
 
-import com.ecommerce.common.context.CorrelationContext;
-import com.ecommerce.common.error.BusinessRuleException;
-import com.ecommerce.common.error.NotFoundException;
 import com.ecommerce.payment.api.dto.ManualReconcileRequest;
 import com.ecommerce.payment.api.dto.PaymentTransactionDto;
-import com.ecommerce.payment.domain.model.OutboxEventRecord;
 import com.ecommerce.payment.domain.model.PaymentStatus;
-import com.ecommerce.payment.domain.model.PaymentTransaction;
-import com.ecommerce.payment.domain.repository.OutboxEventRepository;
-import com.ecommerce.payment.domain.repository.PaymentTransactionRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ecommerce.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/backoffice/payments")
+@PreAuthorize("hasAnyRole('ADMIN', 'OPERATOR', 'SUPER_ADMIN', 'OPS_ADMIN', 'ORDER_OPERATIONS_ADMIN')")
 public class BackofficePaymentController {
 
-    private final PaymentTransactionRepository paymentRepository;
-    private final OutboxEventRepository outboxEventRepository;
-    private final ObjectMapper objectMapper;
+    private final PaymentService paymentService;
 
-    public BackofficePaymentController(PaymentTransactionRepository paymentRepository,
-                                       OutboxEventRepository outboxEventRepository,
-                                       ObjectMapper objectMapper) {
-        this.paymentRepository = paymentRepository;
-        this.outboxEventRepository = outboxEventRepository;
-        this.objectMapper = objectMapper;
+    public BackofficePaymentController(PaymentService paymentService) {
+        this.paymentService = paymentService;
     }
 
+    // ==========================================
+    // API-PAY-002: Query Payment Anomalies (FR-039)
+    // ==========================================
     @GetMapping("/anomalies")
     public ResponseEntity<Page<PaymentTransactionDto>> getAnomalies(
-            @RequestParam(defaultValue = "FAILED") PaymentStatus status,
+            @RequestParam(required = false) PaymentStatus status,
             Pageable pageable) {
 
-        Page<PaymentTransaction> transactions = paymentRepository.findByStatus(status, pageable);
-        return ResponseEntity.ok(transactions.map(this::mapToDto));
+        Page<PaymentTransactionDto> anomalies = paymentService.getAnomalies(status, pageable);
+        return ResponseEntity.ok(anomalies);
     }
 
+    // ==========================================
+    // API-PAY-003: Manual Reconciliation (FR-039, BR-012)
+    // ==========================================
     @PostMapping("/{transactionId}/reconcile")
-    @Transactional
     public ResponseEntity<PaymentTransactionDto> manualReconcile(
             @PathVariable UUID transactionId,
             @Valid @RequestBody ManualReconcileRequest request) {
 
-        PaymentTransaction transaction = paymentRepository.findById(transactionId)
-                .orElseThrow(() -> new NotFoundException("Payment transaction not found: " + transactionId));
-
-        // Enforce BR-012: evidence_reference and reason must be present (enforced via @Valid)
-        if (request.getEvidenceReference().trim().isEmpty() || request.getReason().trim().isEmpty()) {
-            throw new BusinessRuleException("BR-012", "Manual reconciliation requires evidence reference and logged reason.");
-        }
-
-        transaction.setStatus(PaymentStatus.SUCCEEDED);
-        transaction.setConfirmedAt(Instant.now());
-        PaymentTransaction saved = paymentRepository.save(transaction);
-
-        // Transactional Outbox: PaymentSucceeded
-        try {
-            String payloadJson = objectMapper.writeValueAsString(saved.getId());
-            OutboxEventRecord outbox = new OutboxEventRecord(
-                    "Payment",
-                    saved.getId().toString(),
-                    "PaymentSucceeded",
-                    payloadJson,
-                    CorrelationContext.getCorrelationId()
-            );
-            outboxEventRepository.save(outbox);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize PaymentSucceeded event", e);
-        }
-
-        return ResponseEntity.ok(mapToDto(saved));
+        PaymentTransactionDto dto = paymentService.reconcilePayment(transactionId, request);
+        return ResponseEntity.ok(dto);
     }
 
-    private PaymentTransactionDto mapToDto(PaymentTransaction tx) {
-        return new PaymentTransactionDto(
-                tx.getId(),
-                tx.getOrderId(),
-                tx.getProviderReference(),
-                tx.getAmount(),
-                tx.getStatus().name(),
-                tx.getAttemptedAt(),
-                tx.getConfirmedAt()
-        );
+    // ==========================================
+    // Manual Timeout Scan Trigger
+    // ==========================================
+    @PostMapping("/timeout-check")
+    public ResponseEntity<Map<String, Object>> triggerTimeoutCheck(
+            @RequestParam(value = "timeoutMinutes", defaultValue = "15") int timeoutMinutes) {
+
+        int processed = paymentService.checkTimeouts(timeoutMinutes);
+        return ResponseEntity.ok(Map.of(
+                "processed", processed,
+                "timeoutMinutes", timeoutMinutes,
+                "timestamp", Instant.now()
+        ));
     }
 }

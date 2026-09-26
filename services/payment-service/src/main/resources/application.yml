@@ -28,6 +28,24 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       acks: all
 
+jwt:
+  secret: ${JWT_SECRET:c3VwZXItc2VjcmV0LWtleS1mb3ItZGlzdHJpYnV0ZWQtZWNvbW1lcmNl}
+  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+payment:
+  webhook:
+    secret: ${PAYMENT_WEBHOOK_SECRET:gateway-shared-secret-12345}
+  timeout:
+    minutes: ${PAYMENT_TIMEOUT_MINUTES:15}
+
+services:
+  order:
+    url: ${SERVICES_ORDER_URL:http://localhost:8086}
+  inventory:
+    url: ${SERVICES_INVENTORY_URL:http://localhost:8085}
+  exception:
+    url: ${SERVICES_EXCEPTION_URL:http://localhost:8092}
+
 eureka:
   client:
     service-url:

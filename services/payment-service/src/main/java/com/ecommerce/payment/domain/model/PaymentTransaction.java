@@ -31,6 +31,12 @@ public class PaymentTransaction {
     @Column(name = "confirmed_at")
     private Instant confirmedAt;
 
+    @Column(name = "evidence_reference")
+    private String evidenceReference;
+
+    @Column(name = "reconciliation_reason")
+    private String reconciliationReason;
+
     public PaymentTransaction() {
         this.id = UUID.randomUUID();
         this.status = PaymentStatus.INITIATED;
@@ -43,6 +49,30 @@ public class PaymentTransaction {
         this.amount = amount;
         this.status = PaymentStatus.INITIATED;
         this.attemptedAt = Instant.now();
+    }
+
+    public void markSucceeded(String providerReference) {
+        this.providerReference = providerReference;
+        this.status = PaymentStatus.SUCCEEDED;
+        this.confirmedAt = Instant.now();
+    }
+
+    public void markFailed(String providerReference) {
+        this.providerReference = providerReference;
+        this.status = PaymentStatus.FAILED;
+        this.confirmedAt = Instant.now();
+    }
+
+    public void markTimeout() {
+        this.status = PaymentStatus.TIMEOUT;
+        this.confirmedAt = Instant.now();
+    }
+
+    public void markReconciled(String evidenceReference, String reason) {
+        this.evidenceReference = evidenceReference;
+        this.reconciliationReason = reason;
+        this.status = PaymentStatus.SUCCEEDED;
+        this.confirmedAt = Instant.now();
     }
 
     public UUID getId() {
@@ -89,11 +119,31 @@ public class PaymentTransaction {
         return attemptedAt;
     }
 
+    public void setAttemptedAt(Instant attemptedAt) {
+        this.attemptedAt = attemptedAt;
+    }
+
     public Instant getConfirmedAt() {
         return confirmedAt;
     }
 
     public void setConfirmedAt(Instant confirmedAt) {
         this.confirmedAt = confirmedAt;
+    }
+
+    public String getEvidenceReference() {
+        return evidenceReference;
+    }
+
+    public void setEvidenceReference(String evidenceReference) {
+        this.evidenceReference = evidenceReference;
+    }
+
+    public String getReconciliationReason() {
+        return reconciliationReason;
+    }
+
+    public void setReconciliationReason(String reconciliationReason) {
+        this.reconciliationReason = reconciliationReason;
     }
 }

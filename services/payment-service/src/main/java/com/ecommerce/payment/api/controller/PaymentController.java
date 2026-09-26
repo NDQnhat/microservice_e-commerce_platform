@@ -1,126 +1,64 @@
 package com.ecommerce.payment.api.controller;
 
-import com.ecommerce.common.context.CorrelationContext;
-import com.ecommerce.common.error.BusinessRuleException;
 import com.ecommerce.payment.api.dto.InitiatePaymentRequest;
 import com.ecommerce.payment.api.dto.PaymentCallbackRequest;
 import com.ecommerce.payment.api.dto.PaymentTransactionDto;
-import com.ecommerce.payment.domain.model.OutboxEventRecord;
-import com.ecommerce.payment.domain.model.PaymentStatus;
-import com.ecommerce.payment.domain.model.PaymentTransaction;
-import com.ecommerce.payment.domain.repository.OutboxEventRepository;
-import com.ecommerce.payment.domain.repository.PaymentTransactionRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ecommerce.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
 
-    private final PaymentTransactionRepository paymentRepository;
-    private final OutboxEventRepository outboxEventRepository;
-    private final ObjectMapper objectMapper;
+    private final PaymentService paymentService;
 
-    public PaymentController(PaymentTransactionRepository paymentRepository,
-                             OutboxEventRepository outboxEventRepository,
-                             ObjectMapper objectMapper) {
-        this.paymentRepository = paymentRepository;
-        this.outboxEventRepository = outboxEventRepository;
-        this.objectMapper = objectMapper;
+    public PaymentController(PaymentService paymentService) {
+        this.paymentService = paymentService;
     }
 
+    // ==========================================
+    // Initiate Payment (PAY-T01: [none] -> INITIATED)
+    // ==========================================
     @PostMapping("/initiate")
-    @Transactional
     public ResponseEntity<PaymentTransactionDto> initiatePayment(
             @Valid @RequestBody InitiatePaymentRequest request) {
 
-        PaymentTransaction transaction = new PaymentTransaction(request.getOrderId(), request.getAmount());
-        PaymentTransaction saved = paymentRepository.save(transaction);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(mapToDto(saved));
+        PaymentTransactionDto dto = paymentService.initiatePayment(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
+    // ==========================================
+    // API-PAY-001: Gateway Callback (PAY-T02, PAY-T03)
+    // ==========================================
     @PostMapping("/callback")
-    @Transactional
     public ResponseEntity<PaymentTransactionDto> handleCallback(
+            @RequestHeader(value = "X-Webhook-Secret", required = false) String webhookSecret,
+            @RequestHeader(value = "X-Signature", required = false) String signature,
             @Valid @RequestBody PaymentCallbackRequest request) {
 
-        List<PaymentTransaction> transactions = paymentRepository.findByOrderId(request.getOrderId());
-        Optional<PaymentTransaction> initiatedTx = transactions.stream()
-                .filter(t -> t.getStatus() == PaymentStatus.INITIATED)
-                .findFirst();
-
-        // BR-002: Check for duplicate SUCCESS callback
-        boolean alreadySucceeded = transactions.stream()
-                .anyMatch(t -> t.getStatus() == PaymentStatus.SUCCEEDED);
-
-        if ("SUCCESS".equalsIgnoreCase(request.getResult())) {
-            if (alreadySucceeded) {
-                throw new BusinessRuleException("BR-002", "Order already has a succeeded payment. Duplicate rejected.");
-            }
-
-            PaymentTransaction tx = initiatedTx.orElseGet(() ->
-                    new PaymentTransaction(request.getOrderId(), request.getAmount()));
-
-            tx.setProviderReference(request.getProviderReference());
-            tx.setStatus(PaymentStatus.SUCCEEDED);
-            tx.setConfirmedAt(Instant.now());
-            PaymentTransaction saved = paymentRepository.save(tx);
-
-            // Outbox: PaymentSucceeded
-            publishOutboxEvent("PaymentSucceeded", saved);
-
-            return ResponseEntity.ok(mapToDto(saved));
-        } else {
-            PaymentTransaction tx = initiatedTx.orElseGet(() ->
-                    new PaymentTransaction(request.getOrderId(), request.getAmount()));
-
-            tx.setProviderReference(request.getProviderReference());
-            tx.setStatus(PaymentStatus.FAILED);
-            tx.setConfirmedAt(Instant.now());
-            PaymentTransaction saved = paymentRepository.save(tx);
-
-            // Outbox: PaymentFailed
-            publishOutboxEvent("PaymentFailed", saved);
-
-            return ResponseEntity.ok(mapToDto(saved));
-        }
+        String secret = webhookSecret != null && !webhookSecret.isBlank() ? webhookSecret : signature;
+        PaymentTransactionDto dto = paymentService.handleCallback(request, secret);
+        return ResponseEntity.ok(dto);
     }
 
-    private void publishOutboxEvent(String eventType, PaymentTransaction tx) {
-        try {
-            String payloadJson = objectMapper.writeValueAsString(tx.getId());
-            OutboxEventRecord outbox = new OutboxEventRecord(
-                    "Payment",
-                    tx.getId().toString(),
-                    eventType,
-                    payloadJson,
-                    CorrelationContext.getCorrelationId()
-            );
-            outboxEventRepository.save(outbox);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize outbox event: " + eventType, e);
-        }
-    }
+    // ==========================================
+    // Timeout Detection Trigger (PAY-T04: INITIATED -> TIMEOUT)
+    // ==========================================
+    @PostMapping("/timeout-check")
+    public ResponseEntity<Map<String, Object>> checkTimeouts(
+            @RequestParam(value = "timeoutMinutes", defaultValue = "15") int timeoutMinutes) {
 
-    private PaymentTransactionDto mapToDto(PaymentTransaction tx) {
-        return new PaymentTransactionDto(
-                tx.getId(),
-                tx.getOrderId(),
-                tx.getProviderReference(),
-                tx.getAmount(),
-                tx.getStatus().name(),
-                tx.getAttemptedAt(),
-                tx.getConfirmedAt()
-        );
+        int processed = paymentService.checkTimeouts(timeoutMinutes);
+        return ResponseEntity.ok(Map.of(
+                "processed", processed,
+                "timeoutMinutes", timeoutMinutes,
+                "timestamp", Instant.now()
+        ));
     }
 }
