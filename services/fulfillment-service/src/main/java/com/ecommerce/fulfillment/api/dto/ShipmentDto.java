@@ -1,17 +1,33 @@
 package com.ecommerce.fulfillment.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.UUID;
 
 public class ShipmentDto {
 
+    @JsonProperty("id")
     private UUID id;
+
+    @JsonProperty("order_id")
     private UUID orderId;
+
+    @JsonProperty("carrier_name")
     private String carrierName;
+
+    @JsonProperty("tracking_code")
     private String trackingCode;
+
+    @JsonProperty("status")
     private String status;
+
+    @JsonProperty("packed_at")
     private Instant packedAt;
+
+    @JsonProperty("shipped_at")
     private Instant shippedAt;
+
+    @JsonProperty("delivered_at")
     private Instant deliveredAt;
 
     public ShipmentDto() {
