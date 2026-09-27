@@ -19,7 +19,7 @@ export async function apiClient<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const correlationId = generateCorrelationId();
-  const token = localStorage.getItem('admin_access_token');
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_access_token') : null;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -27,7 +27,7 @@ export async function apiClient<T>(
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
+  if (token && !headers['Authorization']) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
@@ -45,11 +45,16 @@ export async function apiClient<T>(
         type: 'about:blank',
         title: response.statusText,
         status: response.status,
-        detail: `HTTP error ${response.status}`,
+        detail: `HTTP error ${response.status}: ${response.statusText}`,
         instance: endpoint,
         timestamp: new Date().toISOString(),
       };
     }
+
+    if (!errorProblem.correlationId) {
+      errorProblem.correlationId = response.headers.get('x-correlation-id') || correlationId;
+    }
+
     throw new ApiClientError(errorProblem);
   }
 

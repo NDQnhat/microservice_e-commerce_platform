@@ -1,6 +1,7 @@
 export type Role =
   | 'SUPER_ADMIN'
   | 'OPS_ADMIN'
+  | 'ORDER_OPS_ADMIN'
   | 'SUPPORT_AGENT'
   | 'CATALOG_MANAGER'
   | 'WAREHOUSE_STAFF';
@@ -19,6 +20,39 @@ export interface AuthState {
   isAuthenticated: boolean;
 }
 
+export interface ApiError {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: string;
+  instance?: string;
+  code?: string;
+  correlationId?: string;
+  timestamp?: string;
+  invalidParams?: { name: string; reason: string }[];
+}
+
+export interface ToastMessage {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  detail?: string;
+  code?: string;
+  correlationId?: string;
+  durationMs?: number;
+}
+
+export interface PageResponse<T> {
+  content: T[];
+  totalElements: number;
+  totalPages?: number;
+  size?: number;
+  number?: number;
+}
+
+// ==========================================
+// Exception Management Types (API-EXC-001, API-DASH-001)
+// ==========================================
 export type ExceptionType =
   | 'PAYMENT_FAILED'
   | 'STUCK_ORDER'
@@ -54,8 +88,193 @@ export interface DashboardSummary {
   totalInvestigatingExceptions: number;
   totalResolvedExceptions: number;
   openExceptionsByType: Record<string, number>;
+  activeOrdersCount?: number;
+  lowStockCount?: number;
+  systemHealth?: string;
 }
 
+// ==========================================
+// Order Types (API-ORD-001..007)
+// ==========================================
+export type OrderStatus =
+  | 'CREATED'
+  | 'RESERVED'
+  | 'PAID'
+  | 'PACKING'
+  | 'SHIPPED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'PAYMENT_FAILED'
+  | 'EXPIRED';
+
+export interface OrderItem {
+  id: string;
+  orderId?: string;
+  skuId: string;
+  skuCode?: string;
+  productName?: string;
+  quantity: number;
+  unitPrice: number;
+  subtotalAmount: number;
+}
+
+export interface OrderTimelineEvent {
+  id: string;
+  orderId: string;
+  fromStatus: string;
+  toStatus: string;
+  reason?: string;
+  actorId?: string;
+  actorRole?: string;
+  createdAt: string;
+}
+
+export interface Order {
+  id: string;
+  customerId: string;
+  status: OrderStatus;
+  idempotencyKey?: string;
+  shippingRecipientName?: string;
+  shippingPhone?: string;
+  shippingLine1?: string;
+  shippingLine2?: string;
+  shippingWard?: string;
+  shippingDistrict?: string;
+  shippingCity?: string;
+  subtotalAmount: number;
+  shippingFeeAmount: number;
+  discountAmount: number;
+  grandTotalAmount: number;
+  currency: string;
+  placedAt: string;
+  items?: OrderItem[];
+  timeline?: OrderTimelineEvent[];
+}
+
+// ==========================================
+// Catalog & Pricing Types (API-CAT, API-PRC)
+// ==========================================
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  parentId?: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface Sku {
+  id: string;
+  productId: string;
+  skuCode: string;
+  barcode?: string;
+  attributes: Record<string, string>;
+  basePrice?: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  categoryId?: string;
+  categoryName?: string;
+  status: string;
+  skus?: Sku[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PriceRecord {
+  id: string;
+  skuId: string;
+  amount: number;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  isPromotion: boolean;
+  promotionName?: string;
+}
+
+// ==========================================
+// Inventory Types (API-INV-001..004)
+// ==========================================
+export type AdjustmentReasonCode =
+  | 'RESTOCK'
+  | 'DAMAGED'
+  | 'CORRECTION'
+  | 'CYCLE_COUNT'
+  | 'RETURN_RESTOCK';
+
+export interface SkuInventory {
+  skuId: string;
+  availableQuantity: number;
+  reservedQuantity: number;
+  totalQuantity: number;
+  updatedAt?: string;
+}
+
+export interface InventoryAdjustmentLog {
+  id: string;
+  skuId: string;
+  delta: number;
+  previousQuantity: number;
+  newQuantity: number;
+  reasonCode: AdjustmentReasonCode;
+  note?: string;
+  actorId?: string;
+  createdAt: string;
+}
+
+// ==========================================
+// Payment Types (API-PAY-002, 003)
+// ==========================================
+export type PaymentTransactionStatus =
+  | 'PENDING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'REFUNDED';
+
+export interface PaymentTransaction {
+  id: string;
+  orderId: string;
+  providerReference: string;
+  amount: number;
+  status: PaymentTransactionStatus;
+  attemptedAt: string;
+  confirmedAt?: string;
+  evidenceReference?: string;
+  reconciliationReason?: string;
+}
+
+// ==========================================
+// Fulfillment Types (API-FUL-001..003)
+// ==========================================
+export type ShipmentStatus =
+  | 'PACKING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'DELIVERY_FAILED'
+  | 'RETURNED';
+
+export interface Shipment {
+  id: string;
+  orderId: string;
+  carrierName?: string;
+  trackingCode?: string;
+  status: ShipmentStatus;
+  packedAt?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
+}
+
+// ==========================================
+// Dynamic Configuration Types (API-CFG-001)
+// ==========================================
 export interface BusinessConfiguration {
   id: string;
   configKey: string;
@@ -70,12 +289,45 @@ export interface BusinessConfiguration {
   updatedAt: string;
 }
 
-export interface ApiError {
-  type: string;
-  title: string;
-  status: number;
-  detail: string;
-  instance: string;
-  timestamp: string;
-  invalidParams?: { name: string; reason: string }[];
+// ==========================================
+// Audit & Compliance Types (API-AUDIT-001)
+// ==========================================
+export interface AuditLog {
+  id: string;
+  actorId: string;
+  actorRole: string;
+  actionType: string;
+  entityType: string;
+  entityId: string;
+  beforeValue?: string;
+  afterValue?: string;
+  reason?: string;
+  createdAt: string;
+}
+
+// ==========================================
+// Customer Support & Notification Types (API-SUP-001, API-NOT)
+// ==========================================
+export interface NotificationLog {
+  id: string;
+  orderId?: string;
+  recipient: string;
+  channel: string;
+  templateCode: string;
+  status: string;
+  retryCount: number;
+  payload?: string;
+  sentAt?: string;
+  createdAt: string;
+}
+
+export interface CustomerUser {
+  id: string;
+  email: string;
+  fullName: string;
+  phone?: string;
+  roles: string[];
+  isActive: boolean;
+  isLocked: boolean;
+  createdAt: string;
 }
