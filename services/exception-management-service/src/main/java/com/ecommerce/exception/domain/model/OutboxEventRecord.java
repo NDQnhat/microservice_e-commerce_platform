@@ -74,6 +74,18 @@ public class OutboxEventRecord {
         );
     }
 
+    public void markSent() {
+        this.status = OutboxStatus.SENT;
+        this.processedAt = Instant.now();
+    }
+
+    public void incrementRetry(int maxRetries) {
+        this.retryCount++;
+        if (this.retryCount >= maxRetries) {
+            this.status = OutboxStatus.FAILED;
+        }
+    }
+
     public UUID getId() {
         return id;
     }
