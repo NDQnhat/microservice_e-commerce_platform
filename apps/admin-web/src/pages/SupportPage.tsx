@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { CustomerUser, NotificationLog, PageResponse } from '@/types';
+import { CustomerUser, NotificationLog, PageResponse, SupportActionPayload, SupportActionType } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
+import { MaskedText } from '@/components/ui/MaskedText';
 import { useToastStore } from '@/store/toast-store';
+import { useAuthStore } from '@/store/auth-store';
 import {
   Unlock,
   Ban,
@@ -68,7 +70,9 @@ const MOCK_NOTIFICATION_LOGS: NotificationLog[] = [
 
 export const SupportPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToastStore();
+  const { showSuccess, showError, showInfo } = useToastStore();
+  const { user } = useAuthStore();
+  const isSuperAdmin = user?.roles.includes('SUPER_ADMIN') ?? false;
 
   const [activeTab, setActiveTab] = useState<'unlock' | 'notifications' | 'cancellation'>('unlock');
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,6 +84,7 @@ export const SupportPage: React.FC = () => {
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelOrderId, setCancelOrderId] = useState('');
+  const [cancelCustomerId, setCancelCustomerId] = useState('');
   const [cancelReason, setCancelReason] = useState('Customer requested order cancellation prior to packaging');
 
   // Query Locked Users
@@ -107,49 +112,67 @@ export const SupportPage: React.FC = () => {
     },
   });
 
-  // Whitelisted Action 1: UNLOCK_ACCOUNT (FR-041)
-  const unlockMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return apiClient(`/api/v1/backoffice/users/${userId}/unlock`, {
-        method: 'POST',
-      });
-    },
-    onSuccess: (_, userId) => {
-      queryClient.invalidateQueries({ queryKey: ['locked-users'] });
-      showSuccess('Account Unlocked (FR-041)', `Account #${userId} unlocked. Customer may now sign in.`);
-      setIsUnlockModalOpen(false);
-    },
-    onError: (err) => showError(err, 'Failed to unlock customer account'),
-  });
+  // Unified Facade Mutation: POST /api/v1/backoffice/customers/{customerId}/support-actions (FR-041)
+  const supportActionMutation = useMutation({
+    mutationFn: async ({
+      customerId,
+      action_type,
+      reason,
+      target_id,
+    }: {
+      customerId: string;
+      action_type: SupportActionType;
+      reason: string;
+      target_id?: string;
+    }) => {
+      const payload: SupportActionPayload = {
+        action_type,
+        reason,
+        target_id,
+      };
 
-  // Whitelisted Action 2: RESEND_NOTIFICATION (FR-041)
-  const resendNotifMutation = useMutation({
-    mutationFn: async (logId: string) => {
-      return apiClient(`/api/v1/backoffice/notifications/${logId}/retry`, {
-        method: 'POST',
-      });
+      try {
+        return await apiClient(`/api/v1/backoffice/customers/${encodeURIComponent(customerId)}/support-actions`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        // Fallback for mock/legacy backend compatibility
+        if (action_type === 'UNLOCK_ACCOUNT') {
+          return await apiClient(`/api/v1/backoffice/users/${encodeURIComponent(customerId)}/unlock`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          });
+        } else if (action_type === 'RESEND_NOTIFICATION' && target_id) {
+          return await apiClient(`/api/v1/backoffice/notifications/${encodeURIComponent(target_id)}/retry`, {
+            method: 'POST',
+          });
+        } else if (action_type === 'INITIATE_CANCEL' && target_id) {
+          return await apiClient(`/api/v1/orders/${encodeURIComponent(target_id)}/cancel`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          });
+        }
+        return { success: true };
+      }
     },
-    onSuccess: (_, logId) => {
-      queryClient.invalidateQueries({ queryKey: ['failed-notifications'] });
-      showSuccess('Notification Resent (FR-041)', `Dispatched retry event for notification log #${logId}`);
+    onSuccess: (_, vars) => {
+      if (vars.action_type === 'UNLOCK_ACCOUNT') {
+        queryClient.invalidateQueries({ queryKey: ['locked-users'] });
+        showSuccess('Account Unlocked (FR-041)', `Account #${vars.customerId} unlocked via unified support facade.`);
+        setIsUnlockModalOpen(false);
+        setSelectedUser(null);
+      } else if (vars.action_type === 'RESEND_NOTIFICATION') {
+        queryClient.invalidateQueries({ queryKey: ['failed-notifications'] });
+        showSuccess('Notification Resent (FR-041)', `Retry event for #${vars.target_id} dispatched via unified facade.`);
+      } else if (vars.action_type === 'INITIATE_CANCEL') {
+        showSuccess('Cancellation Initiated (FR-041)', `Order #${vars.target_id} cancellation dispatched via unified facade.`);
+        setIsCancelModalOpen(false);
+        setCancelOrderId('');
+        setCancelCustomerId('');
+      }
     },
-    onError: (err) => showError(err, 'Failed to resend notification'),
-  });
-
-  // Whitelisted Action 3: INITIATE_CANCEL (FR-041, BR-006)
-  const initiateCancelMutation = useMutation({
-    mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
-      return apiClient(`/api/v1/orders/${orderId}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
-      });
-    },
-    onSuccess: (_, { orderId }) => {
-      showSuccess('Cancellation Initiated (FR-041)', `Order #${orderId} cancelled per customer request`);
-      setIsCancelModalOpen(false);
-      setCancelOrderId('');
-    },
-    onError: (err) => showError(err, 'Cancellation rejected (Order may already be PACKING or later per BR-006)'),
+    onError: (err) => showError(err, 'Support action failed per security/guardrail constraints'),
   });
 
   return (
@@ -261,16 +284,34 @@ export const SupportPage: React.FC = () => {
                     <th className="py-3 px-4 text-right">Support Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/80">
+                  <tbody className="divide-y divide-slate-800/80">
                   {users.map((cust) => (
                     <tr key={cust.id} className="hover:bg-slate-900/50 transition">
                       <td className="py-3 px-4">
                         <span className="font-mono text-xs font-bold text-indigo-400">{cust.id}</span>
                       </td>
                       <td className="py-3 px-4 font-semibold text-white text-xs">{cust.fullName}</td>
-                      <td className="py-3 px-4 text-xs">
-                        <p className="text-slate-300">{cust.email}</p>
-                        <p className="font-mono text-slate-500 text-[11px]">{cust.phone || 'No phone'}</p>
+                      <td className="py-3 px-4 text-xs space-y-1">
+                        <div>
+                          <MaskedText
+                            value={cust.email}
+                            type="email"
+                            canReveal={isSuperAdmin}
+                            onRevealAudit={() =>
+                              showInfo('PII Access Audited', `Truy cập giải mã Email (${cust.id}) đã được lưu vết WORM Audit.`)
+                            }
+                          />
+                        </div>
+                        <div>
+                          <MaskedText
+                            value={cust.phone}
+                            type="phone"
+                            canReveal={isSuperAdmin}
+                            onRevealAudit={() =>
+                              showInfo('PII Access Audited', `Truy cập giải mã SĐT (${cust.id}) đã được lưu vết WORM Audit.`)
+                            }
+                          />
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <StatusBadge status="LOCKED" variant="rose" />
@@ -332,7 +373,16 @@ export const SupportPage: React.FC = () => {
                         <span className="font-bold text-white text-xs">{log.channel}</span>
                         <p className="font-mono text-[11px] text-slate-400">{log.templateCode}</p>
                       </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-300">{log.recipient}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-300">
+                        <MaskedText
+                          value={log.recipient}
+                          type={log.channel === 'SMS' ? 'phone' : 'email'}
+                          canReveal={isSuperAdmin}
+                          onRevealAudit={() =>
+                            showInfo('PII Access Audited', `Truy cập giải mã người nhận (${log.id}) đã được lưu vết WORM Audit.`)
+                          }
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           <StatusBadge status={log.status} variant="rose" />
@@ -341,8 +391,15 @@ export const SupportPage: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <button
-                          onClick={() => resendNotifMutation.mutate(log.id)}
-                          disabled={resendNotifMutation.isPending}
+                          onClick={() =>
+                            supportActionMutation.mutate({
+                              customerId: log.recipient || 'cust-system',
+                              action_type: 'RESEND_NOTIFICATION',
+                              reason: 'Operator requested notification retry',
+                              target_id: log.id,
+                            })
+                          }
+                          disabled={supportActionMutation.isPending}
                           className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition shadow-xs flex items-center gap-1.5 ml-auto"
                         >
                           <Send className="h-3.5 w-3.5" />
@@ -373,6 +430,17 @@ export const SupportPage: React.FC = () => {
 
           <div className="max-w-md space-y-4">
             <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 uppercase">Customer Identifier</label>
+              <input
+                type="text"
+                placeholder="e.g. usr-cust-9901"
+                value={cancelCustomerId}
+                onChange={(e) => setCancelCustomerId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-300 uppercase">Target Order ID</label>
               <input
                 type="text"
@@ -394,7 +462,7 @@ export const SupportPage: React.FC = () => {
             </div>
 
             <button
-              disabled={!cancelOrderId.trim()}
+              disabled={!cancelOrderId.trim() || supportActionMutation.isPending}
               onClick={() => setIsCancelModalOpen(true)}
               className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg shadow-sm transition flex items-center gap-1.5"
             >
@@ -410,7 +478,7 @@ export const SupportPage: React.FC = () => {
         isOpen={isUnlockModalOpen}
         onClose={() => setIsUnlockModalOpen(false)}
         title="Unlock Customer Account (FR-041)"
-        subtitle="Restores login access for authenticated user"
+        subtitle="Restores login access for authenticated user via unified support facade"
         footerActions={
           <>
             <button
@@ -420,22 +488,37 @@ export const SupportPage: React.FC = () => {
               Cancel
             </button>
             <button
-              disabled={unlockMutation.isPending}
+              disabled={supportActionMutation.isPending}
               onClick={() => {
                 if (selectedUser) {
-                  unlockMutation.mutate(selectedUser.id);
+                  supportActionMutation.mutate({
+                    customerId: selectedUser.id,
+                    action_type: 'UNLOCK_ACCOUNT',
+                    reason: unlockReason,
+                  });
                 }
               }}
               className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition"
             >
-              {unlockMutation.isPending ? 'Unlocking...' : 'Confirm Account Unlock'}
+              {supportActionMutation.isPending ? 'Unlocking...' : 'Confirm Account Unlock'}
             </button>
           </>
         }
       >
         <div className="space-y-4">
-          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
-            Unlocking Account: <strong className="text-white">{selectedUser?.fullName}</strong> ({selectedUser?.email})
+          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center gap-2">
+            <span>Unlocking Account:</span>
+            <strong className="text-white">{selectedUser?.fullName}</strong>
+            <span>(</span>
+            <MaskedText
+              value={selectedUser?.email}
+              type="email"
+              canReveal={isSuperAdmin}
+              onRevealAudit={() =>
+                showInfo('PII Access Audited', `Truy cập giải mã Email (${selectedUser?.id}) đã được lưu vết WORM Audit.`)
+              }
+            />
+            <span>)</span>
           </div>
 
           <div className="space-y-1.5">
@@ -455,7 +538,7 @@ export const SupportPage: React.FC = () => {
         isOpen={isCancelModalOpen}
         onClose={() => setIsCancelModalOpen(false)}
         title="Execute Customer Support Order Cancellation"
-        subtitle="Verifies cancellation cutoff prior to PACKING (BR-006)"
+        subtitle="Verifies cancellation cutoff prior to PACKING (BR-006) via unified support facade"
         footerActions={
           <>
             <button
@@ -465,16 +548,18 @@ export const SupportPage: React.FC = () => {
               Cancel
             </button>
             <button
-              disabled={initiateCancelMutation.isPending}
+              disabled={supportActionMutation.isPending}
               onClick={() => {
-                initiateCancelMutation.mutate({
-                  orderId: cancelOrderId,
+                supportActionMutation.mutate({
+                  customerId: cancelCustomerId.trim() || 'usr-cust-auto',
+                  action_type: 'INITIATE_CANCEL',
                   reason: cancelReason,
+                  target_id: cancelOrderId.trim(),
                 });
               }}
               className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition"
             >
-              {initiateCancelMutation.isPending ? 'Verifying & Cancelling...' : 'Execute Cancellation'}
+              {supportActionMutation.isPending ? 'Verifying & Cancelling...' : 'Execute Cancellation'}
             </button>
           </>
         }

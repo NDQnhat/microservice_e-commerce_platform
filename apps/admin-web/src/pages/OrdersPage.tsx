@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Order, OrderStatus, PageResponse } from '@/types';
+import { Order, OrderStatus, OrderCancellationReasonCode, PageResponse } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { TerminalBadge, isTerminalStatus } from '@/components/TerminalBadge';
 import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
@@ -17,6 +19,10 @@ import {
   Ban,
   CheckCircle2,
   AlertTriangle,
+  Download,
+  ArrowRight,
+  Info,
+  Calendar,
 } from 'lucide-react';
 
 const MOCK_ORDERS: Order[] = [
@@ -190,10 +196,10 @@ const ORDER_LIFECYCLE_STEPS: OrderStatus[] = [
   'COMPLETED',
 ];
 
-// Valid state machine transitions per OrderStateMachine.java
+// Valid state machine transitions per OrderStateMachine.java (BR-011: Operator prohibited from manually jumping to PAID)
 const VALID_NEXT_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   CREATED: ['RESERVED', 'CANCELLED'],
-  RESERVED: ['PAID', 'PAYMENT_FAILED', 'EXPIRED', 'CANCELLED'],
+  RESERVED: ['PAYMENT_FAILED', 'EXPIRED', 'CANCELLED'],
   PAID: ['PACKING', 'CANCELLED'],
   PACKING: ['SHIPPED'],
   SHIPPED: ['COMPLETED'],
@@ -204,21 +210,25 @@ const VALID_NEXT_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 };
 
 export const OrdersPage: React.FC = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToastStore();
 
   const [activeTab, setActiveTab] = useState<'all' | 'stuck'>('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   // Transition & Cancel Modals
   const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
-  const [targetStatus, setTargetStatus] = useState<OrderStatus>('PAID');
+  const [targetStatus, setTargetStatus] = useState<OrderStatus>('RESERVED');
   const [transitionNote, setTransitionNote] = useState('');
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState('Customer requested order cancellation');
+  const [cancelReasonCode, setCancelReasonCode] = useState<OrderCancellationReasonCode>('CUSTOMER_REQUEST');
+  const [cancelNote, setCancelNote] = useState('');
 
   // Fetch Orders
   const { data, isLoading, refetch, isFetching } = useQuery<PageResponse<Order>>({
@@ -274,16 +284,29 @@ export const OrdersPage: React.FC = () => {
 
   // Cancel Order Mutation (BR-001, BR-006)
   const cancelMutation = useMutation({
-    mutationFn: async ({ orderId, reason }: { orderId: string; reason: string }) => {
+    mutationFn: async ({
+      orderId,
+      reason_code,
+      note,
+    }: {
+      orderId: string;
+      reason_code: OrderCancellationReasonCode;
+      note: string;
+    }) => {
       return apiClient<Order>(`/api/v1/orders/${orderId}/cancel`, {
         method: 'POST',
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({
+          reason_code,
+          note,
+          reason: `${reason_code}: ${note}`,
+        }),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       showSuccess('Order Cancelled', `Order marked as CANCELLED (Terminal state per BR-001)`);
       setIsCancelModalOpen(false);
+      setCancelNote('');
       if (selectedOrder) {
         setSelectedOrder({
           ...selectedOrder,
@@ -308,19 +331,63 @@ export const OrdersPage: React.FC = () => {
     onError: (err) => showError(err, 'Failed to re-emit stuck order event'),
   });
 
-  // BR-006: Check if order cancellation is allowed (strictly prior to PACKING)
+  // BR-006: Check if order cancellation is allowed (strictly prior to PACKING/FULFILLMENT)
   const canCancelOrder = (order: Order): boolean => {
     return order.status === 'CREATED' || order.status === 'RESERVED' || order.status === 'PAID';
   };
 
+  const handleExportCsv = () => {
+    if (orders.length === 0) {
+      showError('Không có đơn hàng nào để xuất CSV');
+      return;
+    }
+
+    const headers = ['Order ID', 'Customer ID', 'Recipient', 'Phone', 'Total Amount', 'Currency', 'Status', 'Placed At'];
+    const rows = orders.map((o) => [
+      `"${o.id}"`,
+      `"${o.customerId}"`,
+      `"${o.shippingRecipientName || ''}"`,
+      `"${o.shippingPhone || ''}"`,
+      o.grandTotalAmount,
+      o.currency,
+      o.status,
+      `"${o.placedAt}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `orders-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showSuccess('Export CSV thành công', `Đã xuất ${orders.length} đơn hàng sang định dạng CSV.`);
+  };
+
   const orders = (data?.content || []).filter((o) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      o.id.toLowerCase().includes(q) ||
-      o.customerId.toLowerCase().includes(q) ||
-      (o.shippingRecipientName && o.shippingRecipientName.toLowerCase().includes(q))
-    );
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch =
+        o.id.toLowerCase().includes(q) ||
+        o.customerId.toLowerCase().includes(q) ||
+        (o.shippingRecipientName && o.shippingRecipientName.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
+
+    if (fromDate) {
+      const orderDate = o.placedAt.slice(0, 10);
+      if (orderDate < fromDate) return false;
+    }
+
+    if (toDate) {
+      const orderDate = o.placedAt.slice(0, 10);
+      if (orderDate > toDate) return false;
+    }
+
+    return true;
   });
 
   return (
@@ -333,7 +400,45 @@ export const OrdersPage: React.FC = () => {
             Lifecycle state machine, timeline audit, and stuck order resolution (API-ORD-004..007, BR-001, BR-006, BR-007)
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="bg-transparent text-slate-200 text-xs focus:outline-none"
+              title="From Date"
+            />
+            <span className="text-slate-600">→</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="bg-transparent text-slate-200 text-xs focus:outline-none"
+              title="To Date"
+            />
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFromDate('');
+                  setToDate('');
+                }}
+                className="text-[10px] text-slate-400 hover:text-white ml-1 px-1 rounded bg-slate-800"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleExportCsv}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-xs"
+            title="Export filtered orders to CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export CSV</span>
+          </button>
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -470,7 +575,11 @@ export const OrdersPage: React.FC = () => {
                     }).format(ord.grandTotalAmount)}
                   </td>
                   <td className="py-3 px-4">
-                    <StatusBadge status={ord.status} />
+                    {isTerminalStatus(ord.status) ? (
+                      <TerminalBadge status={ord.status} />
+                    ) : (
+                      <StatusBadge status={ord.status} />
+                    )}
                   </td>
                   <td className="py-3 px-4 text-xs text-slate-400">
                     {new Date(ord.placedAt).toLocaleString()}
@@ -501,13 +610,23 @@ export const OrdersPage: React.FC = () => {
                             Transition
                           </button>
                         )}
-                        {canCancelOrder(ord) && (
+                        {canCancelOrder(ord) ? (
                           <button
                             onClick={() => {
                               setSelectedOrder(ord);
+                              setCancelReasonCode('CUSTOMER_REQUEST');
+                              setCancelNote('');
                               setIsCancelModalOpen(true);
                             }}
                             className="px-2.5 py-1 text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 rounded transition"
+                          >
+                            Cancel
+                          </button>
+                        ) : (
+                          <button
+                            disabled
+                            title="Không thể hủy đơn: Quá thời hạn cho phép hủy (BR-001, BR-006). Đơn hàng đã ở khâu đóng gói/vận chuyển hoặc trạng thái kết thúc."
+                            className="px-2.5 py-1 text-xs font-semibold bg-slate-800/40 text-slate-600 rounded cursor-not-allowed border border-slate-800/60"
                           >
                             Cancel
                           </button>
@@ -536,19 +655,34 @@ export const OrdersPage: React.FC = () => {
         title={`Order Details #${selectedOrder?.id}`}
         subtitle={`Placed: ${selectedOrder ? new Date(selectedOrder.placedAt).toLocaleString() : ''}`}
         idToCopy={selectedOrder?.id}
-        badge={selectedOrder ? <StatusBadge status={selectedOrder.status} /> : null}
+        badge={
+          selectedOrder ? (
+            isTerminalStatus(selectedOrder.status) ? (
+              <TerminalBadge status={selectedOrder.status} />
+            ) : (
+              <StatusBadge status={selectedOrder.status} />
+            )
+          ) : null
+        }
         footerActions={
           selectedOrder && (
             <>
               {canCancelOrder(selectedOrder) ? (
                 <button
-                  onClick={() => setIsCancelModalOpen(true)}
+                  onClick={() => {
+                    setCancelReasonCode('CUSTOMER_REQUEST');
+                    setCancelNote('');
+                    setIsCancelModalOpen(true);
+                  }}
                   className="px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
                 >
                   Cancel Order (Prior to Packing)
                 </button>
               ) : (
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <div
+                  title="Không thể hủy đơn: Quá thời hạn cho phép hủy (BR-001, BR-006). Đơn hàng đã ở khâu đóng gói/vận chuyển hoặc trạng thái kết thúc."
+                  className="flex items-center gap-1.5 text-xs text-slate-500 cursor-not-allowed"
+                >
                   <Ban className="h-3.5 w-3.5 text-amber-500" />
                   <span>Cancellation cutoff exceeded (BR-006)</span>
                 </div>
@@ -789,6 +923,28 @@ export const OrdersPage: React.FC = () => {
         }
       >
         <div className="space-y-4">
+          {(selectedOrder?.status === 'CREATED' || selectedOrder?.status === 'RESERVED') && (
+            <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+                <p className="leading-relaxed">
+                  Trạng thái <strong className="font-mono text-white">PAID</strong> chỉ được kích hoạt bởi Gateway Webhook. Nếu cần can thiệp tài chính bất thường, vui lòng chuyển sang màn hình Đối soát thanh toán (Payment Reconciliation) với quyền Financial Auditor.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTransitionModalOpen(false);
+                  navigate('/reconciliation');
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition shadow-xs"
+              >
+                <span>Chuyển sang Đối soát thanh toán</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 uppercase">
               Target State Machine Status
@@ -805,6 +961,9 @@ export const OrdersPage: React.FC = () => {
                   </option>
                 ))}
             </select>
+            {selectedOrder && (VALID_NEXT_TRANSITIONS[selectedOrder.status] || []).length === 0 && (
+              <p className="text-[11px] text-slate-500 italic">No manual transitions permitted from current status.</p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -826,7 +985,7 @@ export const OrdersPage: React.FC = () => {
       <Modal
         isOpen={isCancelModalOpen}
         onClose={() => setIsCancelModalOpen(false)}
-        title="Cancel Order Confirmation (BR-001)"
+        title="Cancel Order Confirmation (BR-001, BR-006)"
         subtitle="Irreversible action: CANCELLED is a terminal state"
         footerActions={
           <>
@@ -837,18 +996,19 @@ export const OrdersPage: React.FC = () => {
               Back
             </button>
             <button
-              disabled={cancelMutation.isPending}
+              disabled={cancelMutation.isPending || !cancelReasonCode || cancelNote.trim().length < 10}
               onClick={() => {
                 if (selectedOrder) {
                   cancelMutation.mutate({
                     orderId: selectedOrder.id,
-                    reason: cancelReason,
+                    reason_code: cancelReasonCode,
+                    note: cancelNote,
                   });
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition"
+              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition"
             >
-              {cancelMutation.isPending ? 'Cancelling...' : 'Confirm Order Cancellation'}
+              {cancelMutation.isPending ? 'Đang hủy đơn...' : 'Xác nhận hủy đơn'}
             </button>
           </>
         }
@@ -866,13 +1026,40 @@ export const OrdersPage: React.FC = () => {
 
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 uppercase">
-              Cancellation Reason
+              Lý do hủy đơn (Reason Code - Bắt buộc)
             </label>
-            <input
-              type="text"
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            <select
+              value={cancelReasonCode}
+              onChange={(e) => setCancelReasonCode(e.target.value as OrderCancellationReasonCode)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+            >
+              <option value="CUSTOMER_REQUEST">CUSTOMER_REQUEST - Khách hàng yêu cầu hủy đơn</option>
+              <option value="OUT_OF_STOCK">OUT_OF_STOCK - Hết hàng tồn kho</option>
+              <option value="PAYMENT_TIMEOUT">PAYMENT_TIMEOUT - Quá hạn thời gian thanh toán</option>
+              <option value="SUSPECTED_FRAUD">SUSPECTED_FRAUD - Nghi ngờ giao dịch gian lận</option>
+              <option value="OPERATOR_OVERRIDE">OPERATOR_OVERRIDE - Can thiệp quản trị viên</option>
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase">
+                Ghi chú hủy đơn (Tối thiểu 10 ký tự)
+              </label>
+              <span
+                className={`text-[11px] font-mono ${
+                  cancelNote.trim().length >= 10 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
+                }`}
+              >
+                {cancelNote.trim().length} / 10 ký tự tối thiểu
+              </span>
+            </div>
+            <textarea
+              rows={3}
+              value={cancelNote}
+              onChange={(e) => setCancelNote(e.target.value)}
+              placeholder="Nhập lý do chi tiết giải trình việc hủy đơn (tối thiểu 10 ký tự)..."
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
             />
           </div>
         </div>

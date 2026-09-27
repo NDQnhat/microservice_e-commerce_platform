@@ -17,6 +17,7 @@ import {
   LogOut,
   ShieldCheck,
   UserCheck,
+  Users,
 } from 'lucide-react';
 
 interface NavItem {
@@ -47,7 +48,7 @@ export const Layout: React.FC = () => {
       name: 'Order Operations',
       href: '/orders',
       icon: ShoppingCart,
-      allowedRoles: ['SUPER_ADMIN', 'OPS_ADMIN', 'ORDER_OPS_ADMIN', 'SUPPORT_AGENT'],
+      allowedRoles: ['SUPER_ADMIN', 'OPS_ADMIN', 'ORDER_OPS_ADMIN', 'ORDER_OPERATOR', 'SUPPORT_AGENT'],
     },
     {
       name: 'Catalog & Pricing',
@@ -65,7 +66,7 @@ export const Layout: React.FC = () => {
       name: 'Payment Reconciliation',
       href: '/reconciliation',
       icon: CreditCard,
-      allowedRoles: ['SUPER_ADMIN', 'OPS_ADMIN'],
+      allowedRoles: ['SUPER_ADMIN', 'OPS_ADMIN', 'FINANCIAL_AUDITOR'],
     },
     {
       name: 'Fulfillment & Shipments',
@@ -77,7 +78,7 @@ export const Layout: React.FC = () => {
       name: 'Customer Support',
       href: '/support',
       icon: Headset,
-      allowedRoles: ['SUPER_ADMIN', 'SUPPORT_AGENT'],
+      allowedRoles: ['SUPER_ADMIN', 'SUPPORT_AGENT', 'CUSTOMER_SUPPORT'],
     },
     {
       name: 'Dynamic Configuration',
@@ -89,6 +90,12 @@ export const Layout: React.FC = () => {
       name: 'Compliance Audit Logs',
       href: '/audit-logs',
       icon: ShieldAlert,
+      allowedRoles: ['SUPER_ADMIN'],
+    },
+    {
+      name: 'Quản lý vai trò & quyền',
+      href: '/roles',
+      icon: Users,
       allowedRoles: ['SUPER_ADMIN'],
     },
   ];
@@ -177,9 +184,12 @@ export const Layout: React.FC = () => {
           >
             <option value="SUPER_ADMIN">SUPER_ADMIN (Full Access)</option>
             <option value="OPS_ADMIN">OPS_ADMIN (Orders & Ops)</option>
+            <option value="ORDER_OPERATOR">ORDER_OPERATOR (Order Flow)</option>
             <option value="SUPPORT_AGENT">SUPPORT_AGENT (Customer Care)</option>
+            <option value="CUSTOMER_SUPPORT">CUSTOMER_SUPPORT (Assisted Ops)</option>
             <option value="CATALOG_MANAGER">CATALOG_MANAGER (Catalog)</option>
             <option value="WAREHOUSE_STAFF">WAREHOUSE_STAFF (Inventory)</option>
+            <option value="FINANCIAL_AUDITOR">FINANCIAL_AUDITOR (Ledger Audit)</option>
           </select>
 
           <div className="px-1 text-[11px] text-slate-400 truncate">

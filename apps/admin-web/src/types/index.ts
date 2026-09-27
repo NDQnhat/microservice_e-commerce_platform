@@ -2,9 +2,12 @@ export type Role =
   | 'SUPER_ADMIN'
   | 'OPS_ADMIN'
   | 'ORDER_OPS_ADMIN'
+  | 'ORDER_OPERATOR'
   | 'SUPPORT_AGENT'
+  | 'CUSTOMER_SUPPORT'
   | 'CATALOG_MANAGER'
-  | 'WAREHOUSE_STAFF';
+  | 'WAREHOUSE_STAFF'
+  | 'FINANCIAL_AUDITOR';
 
 export interface AdminUser {
   id: string;
@@ -30,6 +33,7 @@ export interface ApiError {
   correlationId?: string;
   timestamp?: string;
   invalidParams?: { name: string; reason: string }[];
+  invalid_params?: { name: string; reason: string }[];
 }
 
 export interface ToastMessage {
@@ -207,7 +211,18 @@ export type AdjustmentReasonCode =
   | 'DAMAGED'
   | 'CORRECTION'
   | 'CYCLE_COUNT'
-  | 'RETURN_RESTOCK';
+  | 'RETURN_RESTOCK'
+  | 'DAMAGED_GOODS'
+  | 'INVENTORY_AUDIT_DISCREPANCY'
+  | 'RESTOCK_IMPORT'
+  | 'EXPIRED_DISPOSAL';
+
+export type OrderCancellationReasonCode =
+  | 'CUSTOMER_REQUEST'
+  | 'OUT_OF_STOCK'
+  | 'PAYMENT_TIMEOUT'
+  | 'SUSPECTED_FRAUD'
+  | 'OPERATOR_OVERRIDE';
 
 export interface SkuInventory {
   skuId: string;
@@ -239,6 +254,8 @@ export type PaymentTransactionStatus =
   | 'CANCELLED'
   | 'REFUNDED';
 
+export type ResolutionType = 'ADJUST_LEDGER_CONFIRM' | 'FORCE_REFUND';
+
 export interface PaymentTransaction {
   id: string;
   orderId: string;
@@ -254,8 +271,11 @@ export interface PaymentTransaction {
 // ==========================================
 // Fulfillment Types (API-FUL-001..003)
 // ==========================================
+export type CarrierCode = 'VNPOST' | 'GHN' | 'GHTK' | 'VIETTELPOST';
+
 export type ShipmentStatus =
   | 'PACKING'
+  | 'HANDED_OVER'
   | 'SHIPPED'
   | 'DELIVERED'
   | 'DELIVERY_FAILED'
@@ -329,5 +349,39 @@ export interface CustomerUser {
   roles: string[];
   isActive: boolean;
   isLocked: boolean;
+  createdAt: string;
+}
+
+export type SupportActionType = 'UNLOCK_ACCOUNT' | 'RESEND_NOTIFICATION' | 'INITIATE_CANCEL';
+
+export interface SupportActionPayload {
+  action_type: SupportActionType;
+  reason: string;
+  target_id?: string;
+}
+
+// ==========================================
+// RBAC Management Types (FR-033, BR-018, API-RBAC-001)
+// ==========================================
+export type RbacPermission =
+  | 'catalog:read'
+  | 'catalog:write'
+  | 'order:read'
+  | 'order:update'
+  | 'order:cancel'
+  | 'inventory:read'
+  | 'inventory:adjust'
+  | 'payment:reconcile'
+  | 'shipment:dispatch'
+  | 'support:action'
+  | 'system:config'
+  | 'audit:read';
+
+export interface CustomRoleDefinition {
+  code: string;
+  name: string;
+  description: string;
+  permissions: RbacPermission[];
+  isSystem: boolean;
   createdAt: string;
 }

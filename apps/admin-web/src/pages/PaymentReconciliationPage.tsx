@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { PaymentTransaction, PageResponse, PaymentTransactionStatus } from '@/types';
+import { PaymentTransaction, PageResponse, PaymentTransactionStatus, ResolutionType } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
+import { useAuthStore } from '@/store/auth-store';
 import {
   CreditCard,
   Search,
@@ -17,6 +18,8 @@ import {
   RefreshCw,
   FileCheck2,
   Eye,
+  AlertTriangle,
+  Lock,
 } from 'lucide-react';
 
 const MOCK_ANOMALIES: PaymentTransaction[] = [
@@ -55,14 +58,18 @@ export const PaymentReconciliationPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToastStore();
 
+  const { user, hasAnyRole } = useAuthStore();
+  const isAuthorizedAuditor = hasAnyRole(['FINANCIAL_AUDITOR', 'SUPER_ADMIN']);
+
   const [statusFilter, setStatusFilter] = useState<PaymentTransactionStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
 
-  // Controlled Reconcile Modal (BR-012)
+  // Controlled Reconcile Modal (FR-038, BR-012)
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
-  const [evidenceRef, setEvidenceRef] = useState('');
-  const [reconcileReason, setReconcileReason] = useState('');
+  const [externalTxnId, setExternalTxnId] = useState('');
+  const [resolutionType, setResolutionType] = useState<ResolutionType>('ADJUST_LEDGER_CONFIRM');
+  const [auditJustification, setAuditJustification] = useState('');
 
   // Fetch Anomalies (API-PAY-002)
   const { data, isLoading, refetch, isFetching } = useQuery<PageResponse<PaymentTransaction>>({
@@ -83,43 +90,56 @@ export const PaymentReconciliationPage: React.FC = () => {
     },
   });
 
-  // Manual Reconcile Mutation (API-PAY-003, BR-012)
+  // Manual Reconcile Mutation (API-PAY-003, FR-038, BR-012)
   const reconcileMutation = useMutation({
     mutationFn: async ({
       id,
-      evidence_reference,
-      reason,
+      external_transaction_id,
+      resolution_type,
+      audit_justification,
     }: {
       id: string;
-      evidence_reference: string;
-      reason: string;
+      external_transaction_id: string;
+      resolution_type: ResolutionType;
+      audit_justification: string;
     }) => {
       return apiClient<PaymentTransaction>(`/api/v1/backoffice/payments/${id}/reconcile`, {
         method: 'POST',
-        body: JSON.stringify({ evidence_reference, reason }),
+        body: JSON.stringify({
+          external_transaction_id,
+          resolution_type,
+          audit_justification,
+          evidence_reference: external_transaction_id,
+          reason: audit_justification,
+        }),
       });
     },
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['payment-anomalies'] });
       showSuccess(
         'Transaction Reconciled (BR-012)',
-        `Transaction #${updated.id || selectedTxn?.id} manually approved with evidence "${evidenceRef}"`
+        `Transaction #${updated.id || selectedTxn?.id} reconciled with external ID "${externalTxnId}" (${resolutionType})`
       );
       setIsReconcileModalOpen(false);
-      setEvidenceRef('');
-      setReconcileReason('');
+      setExternalTxnId('');
+      setAuditJustification('');
       if (selectedTxn) {
         setSelectedTxn({
           ...selectedTxn,
-          status: 'SUCCESS',
-          evidenceReference: evidenceRef,
-          reconciliationReason: reconcileReason,
+          status: resolutionType === 'FORCE_REFUND' ? 'REFUNDED' : 'SUCCESS',
+          evidenceReference: externalTxnId,
+          reconciliationReason: auditJustification,
           confirmedAt: new Date().toISOString(),
         });
       }
     },
     onError: (err) => showError(err, 'Manual reconciliation failed (Evidence reference required per BR-012)'),
   });
+
+  const externalIdRegex = /^[a-zA-Z0-9_-]{6,64}$/;
+  const isExternalIdValid = externalIdRegex.test(externalTxnId.trim());
+  const isJustificationValid = auditJustification.trim().length >= 15;
+  const canSubmitReconcile = isExternalIdValid && isJustificationValid && isAuthorizedAuditor && !reconcileMutation.isPending;
 
   // Trigger Timeout Check
   const timeoutCheckMutation = useMutation({
@@ -370,73 +390,143 @@ export const PaymentReconciliationPage: React.FC = () => {
         )}
       </SlideOverDrawer>
 
-      {/* Manual Reconcile Modal (BR-012) */}
+      {/* Manual Reconcile Modal (FR-038, BR-012) */}
       <Modal
         isOpen={isReconcileModalOpen}
         onClose={() => setIsReconcileModalOpen(false)}
-        title="Manual Payment Reconciliation (BR-012)"
-        subtitle="Mandatory external evidence verification required"
+        title="Xác nhận đối soát thanh toán thủ công (FR-038, BR-012)"
+        subtitle="Ràng buộc kiểm toán sổ cái tài chính & bằng chứng giao dịch WORM"
         footerActions={
           <>
             <button
               onClick={() => setIsReconcileModalOpen(false)}
               className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
             >
-              Cancel
+              Hủy
             </button>
             <button
-              disabled={reconcileMutation.isPending || !evidenceRef.trim() || !reconcileReason.trim()}
+              disabled={!canSubmitReconcile}
               onClick={() => {
                 if (selectedTxn) {
                   reconcileMutation.mutate({
                     id: selectedTxn.id,
-                    evidence_reference: evidenceRef,
-                    reason: reconcileReason,
+                    external_transaction_id: externalTxnId.trim(),
+                    resolution_type: resolutionType,
+                    audit_justification: auditJustification.trim(),
                   });
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg transition"
+              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition shadow-sm"
             >
-              {reconcileMutation.isPending ? 'Committing...' : 'Approve Settlement'}
+              {reconcileMutation.isPending ? 'Đang ghi nhận WORM...' : 'Xác nhận đối soát (Approve)'}
             </button>
           </>
         }
       >
         <div className="space-y-4">
-          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
-            Reconciling Transaction: <span className="font-mono font-bold text-white">{selectedTxn?.id}</span> (Amount:{' '}
-            {selectedTxn ? new Intl.NumberFormat('vi-VN').format(selectedTxn.amount) : 0} VND)
+          {/* Financial Risk Warning Banner */}
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-1">
+            <p className="font-bold flex items-center gap-1.5 text-amber-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              Cảnh báo rủi ro tài chính & Kiểm toán bất biến (BR-012)
+            </p>
+            <p className="text-[11px] text-amber-300/90 leading-relaxed">
+              Hành động này can thiệp trực tiếp vào số dư sổ cái kế toán và sẽ được ghi vào WORM Audit Log không thể hoàn tác.
+            </p>
           </div>
 
+          {/* RBAC Authorization Guard Notice */}
+          {!isAuthorizedAuditor && (
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+              <Lock className="h-4 w-4 shrink-0 text-rose-400" />
+              <span>
+                Quyền hạn bị từ chối: Chỉ <strong className="font-mono text-white">FINANCIAL_AUDITOR</strong> hoặc <strong className="font-mono text-white">SUPER_ADMIN</strong> mới có quyền đối soát thủ công (Role hiện tại: {user?.roles[0] || 'NONE'}).
+              </span>
+            </div>
+          )}
+
+          <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Transaction ID:</span>
+              <span className="font-mono font-bold text-white">{selectedTxn?.id}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Order Reference:</span>
+              <span className="font-mono text-indigo-400">{selectedTxn?.orderId}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Số tiền:</span>
+              <span className="font-mono font-bold text-emerald-400">
+                {selectedTxn ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(selectedTxn.amount) : 0}
+              </span>
+            </div>
+          </div>
+
+          {/* External Transaction ID (Regex 6-64 chars) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 uppercase">
-                Evidence Reference (Mandatory per BR-012)
+                Mã giao dịch đối soát bên ngoài (external_transaction_id)
               </label>
-              <span className="text-[11px] text-rose-400">* Required</span>
+              <span className="text-[11px] text-rose-400">* Bắt buộc (6-64 ký tự)</span>
             </div>
             <input
               type="text"
-              value={evidenceRef}
-              onChange={(e) => setEvidenceRef(e.target.value)}
-              placeholder="e.g. BANK-STMT-2026-09-27-VCB-88310 or STRIPE-CH-9941"
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              value={externalTxnId}
+              onChange={(e) => setExternalTxnId(e.target.value)}
+              placeholder="e.g. VCB-TXN-20260927-88910 hoặc STRIPE-CH-9941"
+              className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none ${
+                externalTxnId.length > 0 && !isExternalIdValid
+                  ? 'border-rose-500 focus:border-rose-500'
+                  : 'border-slate-700 focus:border-indigo-500'
+              }`}
               required
             />
+            {externalTxnId.length > 0 && !isExternalIdValid && (
+              <p className="text-[11px] text-rose-400">
+                Độ dài yêu cầu từ 6 đến 64 ký tự chữ số/gạch nối (alphanumeric/hyphen/underscore).
+              </p>
+            )}
           </div>
 
+          {/* Resolution Type */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">
+              Hình thức xử lý đối soát (resolution_type)
+            </label>
+            <select
+              value={resolutionType}
+              onChange={(e) => setResolutionType(e.target.value as ResolutionType)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+            >
+              <option value="ADJUST_LEDGER_CONFIRM">
+                ADJUST_LEDGER_CONFIRM - Xác nhận đã thu tiền thực tế (Xác nhận PAID)
+              </option>
+              <option value="FORCE_REFUND">
+                FORCE_REFUND - Xác nhận hoàn tiền cho khách (Chuyển REFUNDED)
+              </option>
+            </select>
+          </div>
+
+          {/* Audit Justification (Min 15 chars) */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 uppercase">
-                Reconciliation Justification
+                Biên bản giải trình kiểm toán (audit_justification)
               </label>
-              <span className="text-[11px] text-rose-400">* Required</span>
+              <span
+                className={`text-[11px] font-mono ${
+                  auditJustification.trim().length >= 15 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
+                }`}
+              >
+                {auditJustification.trim().length} / 15 ký tự tối thiểu
+              </span>
             </div>
             <textarea
               rows={3}
-              value={reconcileReason}
-              onChange={(e) => setReconcileReason(e.target.value)}
-              placeholder="Explain how funds were physically verified and why automatic webhook failed..."
+              value={auditJustification}
+              onChange={(e) => setAuditJustification(e.target.value)}
+              placeholder="Giải trình chi tiết kết quả đối soát thực tế từ sao kê ngân hàng / cổng thanh toán (tối thiểu 15 ký tự)..."
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
               required
             />

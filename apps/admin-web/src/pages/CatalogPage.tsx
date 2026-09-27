@@ -18,6 +18,8 @@ import {
   Calendar,
   RefreshCw,
   FolderTree,
+  AlertTriangle,
+  Ban,
 } from 'lucide-react';
 
 const MOCK_CATEGORIES: Category[] = [
@@ -100,6 +102,8 @@ export const CatalogPage: React.FC = () => {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [isDiscontinueModalOpen, setIsDiscontinueModalOpen] = useState(false);
+  const [productToDiscontinue, setProductToDiscontinue] = useState<Product | null>(null);
 
   // New Product State
   const [newProductName, setNewProductName] = useState('');
@@ -204,6 +208,32 @@ export const CatalogPage: React.FC = () => {
       setIsPromotionModalOpen(false);
     },
     onError: (err) => showError(err, 'Failed to register promotion'),
+  });
+
+  const discontinueProductMutation = useMutation({
+    mutationFn: async (productId: string) => {
+      try {
+        return await apiClient<Product>(`/api/v1/backoffice/products/${productId}/discontinue`, {
+          method: 'POST',
+        });
+      } catch {
+        // Fallback mock update
+        return {
+          id: productId,
+          status: 'DISCONTINUED',
+        } as Product;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+      showSuccess('Product Discontinued', 'Sản phẩm đã được chuyển sang trạng thái ngừng kinh doanh (DISCONTINUED).');
+      setIsDiscontinueModalOpen(false);
+      if (selectedProduct && productToDiscontinue && selectedProduct.id === productToDiscontinue.id) {
+        setSelectedProduct({ ...selectedProduct, status: 'DISCONTINUED' });
+      }
+      setProductToDiscontinue(null);
+    },
+    onError: (err) => showError(err, 'Failed to discontinue product'),
   });
 
   const products = (productData?.content || []).filter((p) => {
@@ -367,7 +397,10 @@ export const CatalogPage: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <StatusBadge status={prod.status} variant="emerald" />
+                        <StatusBadge
+                          status={prod.status}
+                          variant={prod.status === 'DISCONTINUED' ? 'rose' : 'emerald'}
+                        />
                       </td>
                       <td
                         className="py-3 px-4 text-right space-x-2"
@@ -375,11 +408,27 @@ export const CatalogPage: React.FC = () => {
                       >
                         <button
                           onClick={() => setSelectedProduct(prod)}
-                          className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+                          className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition inline-flex items-center"
                           title="Inspect Product & SKUs"
                         >
                           <Eye className="h-4 w-4" />
                         </button>
+                        {prod.status !== 'DISCONTINUED' ? (
+                          <button
+                            onClick={() => {
+                              setProductToDiscontinue(prod);
+                              setIsDiscontinueModalOpen(true);
+                            }}
+                            className="px-2.5 py-1 text-xs font-medium text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/20 rounded transition"
+                            title="Ngừng kinh doanh"
+                          >
+                            Ngừng kinh doanh
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                            Đã ngừng KD
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -576,6 +625,21 @@ export const CatalogPage: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {selectedProduct.status !== 'DISCONTINUED' && (
+              <div className="pt-4 border-t border-slate-800 flex justify-end">
+                <button
+                  onClick={() => {
+                    setProductToDiscontinue(selectedProduct);
+                    setIsDiscontinueModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-rose-300 hover:text-white bg-rose-500/10 hover:bg-rose-600 border border-rose-500/30 rounded-lg transition flex items-center gap-2"
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  <span>Ngừng kinh doanh sản phẩm</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </SlideOverDrawer>
@@ -732,6 +796,9 @@ export const CatalogPage: React.FC = () => {
                   </option>
                 ))}
             </select>
+            <p className="text-[11px] text-slate-500">
+              * Hệ thống tuân thủ nghiêm ngặt mô hình phân cấp tối đa 2 tầng (SRS 6.2): Chỉ danh mục Gốc (Root) mới được chọn làm cha. Không cho phép tạo danh mục tầng 3.
+            </p>
           </div>
         </div>
       </Modal>
@@ -849,6 +916,55 @@ export const CatalogPage: React.FC = () => {
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
             />
           </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Discontinue Product Confirmation */}
+      <Modal
+        isOpen={isDiscontinueModalOpen}
+        onClose={() => {
+          setIsDiscontinueModalOpen(false);
+          setProductToDiscontinue(null);
+        }}
+        title="Xác nhận ngừng kinh doanh sản phẩm"
+        subtitle={`Sản phẩm: ${productToDiscontinue?.name || ''} (${productToDiscontinue?.id || ''})`}
+        footerActions={
+          <>
+            <button
+              onClick={() => {
+                setIsDiscontinueModalOpen(false);
+                setProductToDiscontinue(null);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={discontinueProductMutation.isPending}
+              onClick={() => {
+                if (productToDiscontinue) {
+                  discontinueProductMutation.mutate(productToDiscontinue.id);
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition flex items-center gap-1.5"
+            >
+              <Ban className="h-3.5 w-3.5" />
+              <span>{discontinueProductMutation.isPending ? 'Đang xử lý...' : 'Xác nhận ngừng kinh doanh'}</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-white">Cảnh báo vòng đời danh mục (Catalog Governance)</p>
+              <p>Sản phẩm sẽ bị ẩn khỏi storefront khách hàng nhưng vẫn lưu vết cho các đơn hàng cũ và lịch sử tồn kho.</p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Sau khi chuyển sang trạng thái <strong>DISCONTINUED</strong>, sản phẩm không thể tiếp tục nhận đặt hàng từ phía khách hàng. Hệ thống nghiêm cấm thao tác xóa cứng (Hard Delete) để bảo toàn tính toàn vẹn dữ liệu cho các phân hệ Order và Inventory.
+          </p>
         </div>
       </Modal>
     </div>

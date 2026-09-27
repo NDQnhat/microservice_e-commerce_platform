@@ -44,6 +44,27 @@ export const DEMO_OPERATORS: Record<Role, AdminUser> = {
     roles: ['WAREHOUSE_STAFF'],
     isActive: true,
   },
+  FINANCIAL_AUDITOR: {
+    id: 'usr-finance-006',
+    email: 'finance.auditor@ecommerce.internal',
+    fullName: 'Jonathan Pierce (Lead Financial Auditor)',
+    roles: ['FINANCIAL_AUDITOR'],
+    isActive: true,
+  },
+  ORDER_OPERATOR: {
+    id: 'usr-order-005',
+    email: 'order.operator@ecommerce.internal',
+    fullName: 'Marcus Kane (Order Operator)',
+    roles: ['ORDER_OPERATOR', 'ORDER_OPS_ADMIN', 'OPS_ADMIN'],
+    isActive: true,
+  },
+  CUSTOMER_SUPPORT: {
+    id: 'usr-support-006',
+    email: 'customer.support@ecommerce.internal',
+    fullName: 'Sarah Chen (Customer Support Specialist)',
+    roles: ['CUSTOMER_SUPPORT', 'SUPPORT_AGENT'],
+    isActive: true,
+  },
 };
 
 interface AuthStore {
@@ -74,6 +95,15 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     initialUser = DEMO_OPERATORS.SUPER_ADMIN;
   }
 
+  const roleMatches = (userRoles: Role[], targetRole: Role): boolean => {
+    if (userRoles.includes('SUPER_ADMIN')) return true;
+    if (userRoles.includes(targetRole)) return true;
+    if (targetRole === 'OPS_ADMIN' && userRoles.includes('ORDER_OPS_ADMIN')) return true;
+    if ((targetRole === 'ORDER_OPERATOR' || targetRole === 'ORDER_OPS_ADMIN') && (userRoles.includes('ORDER_OPERATOR') || userRoles.includes('ORDER_OPS_ADMIN'))) return true;
+    if ((targetRole === 'CUSTOMER_SUPPORT' || targetRole === 'SUPPORT_AGENT') && (userRoles.includes('CUSTOMER_SUPPORT') || userRoles.includes('SUPPORT_AGENT'))) return true;
+    return false;
+  };
+
   return {
     user: initialUser,
     accessToken: initialToken || 'mock-admin-session-token',
@@ -103,18 +133,12 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     hasRole: (role: Role) => {
       const { user } = get();
       if (!user) return false;
-      if (user.roles.includes('SUPER_ADMIN')) return true;
-      if (role === 'OPS_ADMIN' && user.roles.includes('ORDER_OPS_ADMIN')) return true;
-      return user.roles.includes(role);
+      return roleMatches(user.roles, role);
     },
     hasAnyRole: (roles: Role[]) => {
       const { user } = get();
       if (!user) return false;
-      if (user.roles.includes('SUPER_ADMIN')) return true;
-      return roles.some((r) => {
-        if (r === 'OPS_ADMIN' && user.roles.includes('ORDER_OPS_ADMIN')) return true;
-        return user.roles.includes(r);
-      });
+      return roles.some((r) => roleMatches(user.roles, r));
     },
   };
 });

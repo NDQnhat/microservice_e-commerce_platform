@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { ToastMessage, ApiError } from '@/types';
-import { ApiClientError } from '@/lib/api-client';
+import { ToastMessage } from '@/types';
+import { parseRfc7807Error } from '@/utils/error';
 
 interface ToastStore {
   toasts: ToastMessage[];
@@ -9,6 +9,7 @@ interface ToastStore {
   showSuccess: (title: string, detail?: string) => string;
   showError: (error: unknown, fallbackTitle?: string) => string;
   showWarning: (title: string, detail?: string) => string;
+  showInfo: (title: string, detail?: string) => string;
   clearAll: () => void;
 }
 
@@ -38,35 +39,27 @@ export const useToastStore = create<ToastStore>((set, get) => ({
     });
   },
   showError: (error: unknown, fallbackTitle = 'Action Failed') => {
-    let title = fallbackTitle;
-    let detail: string | undefined;
-    let code: string | undefined;
-    let correlationId: string | undefined;
-
-    if (error instanceof ApiClientError) {
-      const p: ApiError = error.problem;
-      title = p.title || fallbackTitle;
-      detail = p.detail || error.message;
-      code = p.code;
-      correlationId = p.correlationId;
-    } else if (error instanceof Error) {
-      detail = error.message;
-    } else if (typeof error === 'string') {
-      detail = error;
-    }
+    const parsed = parseRfc7807Error(error, fallbackTitle);
 
     return get().addToast({
       type: 'error',
-      title,
-      detail,
-      code,
-      correlationId,
+      title: parsed.title,
+      detail: parsed.detail,
+      code: parsed.code,
+      correlationId: parsed.correlationId,
       durationMs: 7000,
     });
   },
   showWarning: (title, detail) => {
     return get().addToast({
       type: 'warning',
+      title,
+      detail,
+    });
+  },
+  showInfo: (title, detail) => {
+    return get().addToast({
+      type: 'info',
       title,
       detail,
     });

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Shipment, ShipmentStatus, PageResponse } from '@/types';
+import { Shipment, ShipmentStatus, PageResponse, CarrierCode } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { TerminalBadge, isTerminalStatus } from '@/components/TerminalBadge';
 import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
@@ -16,13 +17,14 @@ import {
   ShieldCheck,
   RefreshCw,
   Eye,
+  AlertTriangle,
 } from 'lucide-react';
 
 const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 'shp-1001-a1b2',
     orderId: 'ord-1002-9931',
-    carrierName: 'GIAO_HANG_NHANH',
+    carrierName: 'GHN',
     trackingCode: 'GHN-8849102-VN',
     status: 'PACKING',
     packedAt: '2026-09-27T07:25:00Z',
@@ -30,7 +32,7 @@ const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 'shp-1002-c3d4',
     orderId: 'ord-1003-4411',
-    carrierName: 'VIETTEL_POST',
+    carrierName: 'VIETTELPOST',
     trackingCode: 'VTP-9921445-VN',
     status: 'SHIPPED',
     packedAt: '2026-09-26T15:00:00Z',
@@ -39,7 +41,7 @@ const MOCK_SHIPMENTS: Shipment[] = [
   {
     id: 'shp-1003-e5f6',
     orderId: 'ord-1005-7788',
-    carrierName: 'GIAO_HANG_TIET_KIEM',
+    carrierName: 'GHTK',
     trackingCode: 'GHTK-3341092-VN',
     status: 'DELIVERED',
     packedAt: '2026-09-25T10:00:00Z',
@@ -59,8 +61,8 @@ export const ShipmentsPage: React.FC = () => {
 
   // Update Shipment Modal (API-FUL-001, BR-011)
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
-  const [carrierName, setCarrierName] = useState('GIAO_HANG_NHANH');
-  const [trackingCode, setTrackingCode] = useState('');
+  const [carrierCode, setCarrierCode] = useState<CarrierCode>('GHN');
+  const [trackingNumber, setTrackingNumber] = useState('');
   const [targetStatus, setTargetStatus] = useState<ShipmentStatus>('SHIPPED');
 
   // Initiate Shipment Modal
@@ -96,40 +98,52 @@ export const ShipmentsPage: React.FC = () => {
   const updateShipmentMutation = useMutation({
     mutationFn: async ({
       orderId,
-      carrier_name,
-      tracking_code,
+      carrier_code,
+      tracking_number,
       target_status,
     }: {
       orderId: string;
-      carrier_name: string;
-      tracking_code: string;
+      carrier_code: CarrierCode;
+      tracking_number: string;
       target_status: ShipmentStatus;
     }) => {
+      const isMandatory = target_status === 'HANDED_OVER' || target_status === 'SHIPPED';
+      const cleanTracking = tracking_number.trim();
+      if (isMandatory && !/^[a-zA-Z0-9-]{8,32}$/.test(cleanTracking)) {
+        throw new Error('Tracking number is mandatory and must match ^[a-zA-Z0-9-]{8,32}$ when transitioning to HANDED_OVER or SHIPPED');
+      }
+
       return apiClient<Shipment>(`/api/v1/backoffice/fulfillment/orders/${orderId}`, {
         method: 'POST',
-        body: JSON.stringify({ carrier_name, tracking_code, target_status }),
+        body: JSON.stringify({
+          carrier_code,
+          carrier_name: carrier_code,
+          tracking_code: cleanTracking,
+          tracking_number: cleanTracking,
+          target_status,
+        }),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shipments'] });
       showSuccess(
         'Shipment Dispatched (BR-011)',
-        `Order #${selectedShipment?.orderId} transitioned to ${targetStatus} with carrier ${carrierName}`
+        `Order #${selectedShipment?.orderId} transitioned to ${targetStatus} with carrier ${carrierCode}`
       );
       setIsUpdateModalOpen(false);
-      setTrackingCode('');
+      setTrackingNumber('');
       if (selectedShipment) {
         setSelectedShipment({
           ...selectedShipment,
-          carrierName,
-          trackingCode: trackingCode || selectedShipment.trackingCode,
+          carrierName: carrierCode,
+          trackingCode: trackingNumber.trim() || selectedShipment.trackingCode,
           status: targetStatus,
           shippedAt: targetStatus === 'SHIPPED' ? new Date().toISOString() : selectedShipment.shippedAt,
           deliveredAt: targetStatus === 'DELIVERED' ? new Date().toISOString() : selectedShipment.deliveredAt,
         });
       }
     },
-    onError: (err) => showError(err, 'Failed to update shipment (Carrier and tracking code mandatory per BR-011)'),
+    onError: (err) => showError(err, 'Failed to update shipment (Carrier and tracking number mandatory per BR-011)'),
   });
 
   // Initiate Shipment Mutation
@@ -226,7 +240,7 @@ export const ShipmentsPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(['', 'PACKING', 'SHIPPED', 'DELIVERED', 'DELIVERY_FAILED', 'RETURNED'] as const).map((st) => (
+            {(['', 'PACKING', 'HANDED_OVER', 'SHIPPED', 'DELIVERED', 'DELIVERY_FAILED', 'RETURNED'] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -270,51 +284,57 @@ export const ShipmentsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
-              {shipments.map((shp) => (
-                <tr
-                  key={shp.id}
-                  onClick={() => setSelectedShipment(shp)}
-                  className="hover:bg-slate-900/50 cursor-pointer transition group"
-                >
-                  <td className="py-3 px-4">
-                    <span className="font-mono text-xs font-bold text-indigo-400">{shp.id}</span>
-                  </td>
-                  <td className="py-3 px-4 font-mono text-xs text-slate-300">{shp.orderId}</td>
-                  <td className="py-3 px-4">
-                    <p className="text-xs font-bold text-white">{shp.carrierName || 'Unassigned Carrier'}</p>
-                    <p className="font-mono text-[11px] text-slate-400">{shp.trackingCode || 'No Tracking Code'}</p>
-                  </td>
-                  <td className="py-3 px-4">
-                    <StatusBadge status={shp.status} />
-                  </td>
-                  <td
-                    className="py-3 px-4 text-right space-x-2"
-                    onClick={(e) => e.stopPropagation()}
+              {shipments.map((shp) => {
+                const terminal = isTerminalStatus(shp.status);
+                return (
+                  <tr
+                    key={shp.id}
+                    onClick={() => setSelectedShipment(shp)}
+                    className="hover:bg-slate-900/50 cursor-pointer transition group"
                   >
-                    {shp.status !== 'DELIVERED' && (
-                      <button
-                        onClick={() => {
-                          setSelectedShipment(shp);
-                          setCarrierName(shp.carrierName || 'GIAO_HANG_NHANH');
-                          setTrackingCode(shp.trackingCode || '');
-                          setTargetStatus(shp.status === 'PACKING' ? 'SHIPPED' : 'DELIVERED');
-                          setIsUpdateModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition shadow-xs"
-                      >
-                        Update Courier (BR-011)
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setSelectedShipment(shp)}
-                      className="p-1 text-slate-400 hover:text-white rounded transition"
-                      title="Inspect Shipment"
+                    <td className="py-3 px-4">
+                      <span className="font-mono text-xs font-bold text-indigo-400">{shp.id}</span>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-slate-300">{shp.orderId}</td>
+                    <td className="py-3 px-4">
+                      <p className="text-xs font-bold text-white">{shp.carrierName || 'Unassigned Carrier'}</p>
+                      <p className="font-mono text-[11px] text-slate-400">{shp.trackingCode || 'No Tracking Code'}</p>
+                    </td>
+                    <td className="py-3 px-4">
+                      {terminal ? <TerminalBadge status={shp.status} /> : <StatusBadge status={shp.status} />}
+                    </td>
+                    <td
+                      className="py-3 px-4 text-right space-x-2"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {!terminal && (
+                        <button
+                          onClick={() => {
+                            setSelectedShipment(shp);
+                            const currentCarrier = (['GHN', 'GHTK', 'VIETTELPOST', 'VNPOST'] as const).find(
+                              (c) => c === shp.carrierName
+                            ) || 'GHN';
+                            setCarrierCode(currentCarrier);
+                            setTrackingNumber(shp.trackingCode || '');
+                            setTargetStatus(shp.status === 'PACKING' ? 'HANDED_OVER' : 'SHIPPED');
+                            setIsUpdateModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition shadow-xs"
+                        >
+                          Cập nhật vận đơn
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setSelectedShipment(shp)}
+                        className="p-1 text-slate-400 hover:text-white rounded transition"
+                        title="Inspect Shipment"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -327,19 +347,30 @@ export const ShipmentsPage: React.FC = () => {
         title={`Shipment Details #${selectedShipment?.id}`}
         subtitle={`Order: ${selectedShipment?.orderId}`}
         idToCopy={selectedShipment?.id}
-        badge={selectedShipment ? <StatusBadge status={selectedShipment.status} /> : null}
+        badge={
+          selectedShipment ? (
+            isTerminalStatus(selectedShipment.status) ? (
+              <TerminalBadge status={selectedShipment.status} />
+            ) : (
+              <StatusBadge status={selectedShipment.status} />
+            )
+          ) : null
+        }
         footerActions={
-          selectedShipment && selectedShipment.status !== 'DELIVERED' ? (
+          selectedShipment && !isTerminalStatus(selectedShipment.status) ? (
             <button
               onClick={() => {
-                setCarrierName(selectedShipment.carrierName || 'GIAO_HANG_NHANH');
-                setTrackingCode(selectedShipment.trackingCode || '');
-                setTargetStatus(selectedShipment.status === 'PACKING' ? 'SHIPPED' : 'DELIVERED');
+                const currentCarrier = (['GHN', 'GHTK', 'VIETTELPOST', 'VNPOST'] as const).find(
+                  (c) => c === selectedShipment.carrierName
+                ) || 'GHN';
+                setCarrierCode(currentCarrier);
+                setTrackingNumber(selectedShipment.trackingCode || '');
+                setTargetStatus(selectedShipment.status === 'PACKING' ? 'HANDED_OVER' : 'SHIPPED');
                 setIsUpdateModalOpen(true);
               }}
               className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-sm transition"
             >
-              Update Courier Transition (BR-011)
+              Cập nhật thông tin vận chuyển
             </button>
           ) : null
         }
@@ -389,7 +420,7 @@ export const ShipmentsPage: React.FC = () => {
                 Dispatch Invariant Guard (BR-011)
               </p>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Before transitioning to SHIPPED, the backend strictly requires both a valid carrier identifier and an assigned tracking number. Transitioning to DELIVERED is terminal for shipment tracking.
+                Before transitioning to HANDED_OVER or SHIPPED, the backend strictly requires both a valid carrier identifier (VNPOST, GHN, GHTK, VIETTELPOST) and an assigned tracking number (8-32 alphanumeric/hyphen characters).
               </p>
             </div>
           </div>
@@ -400,82 +431,119 @@ export const ShipmentsPage: React.FC = () => {
       <Modal
         isOpen={isUpdateModalOpen}
         onClose={() => setIsUpdateModalOpen(false)}
-        title="Update Shipment Status (BR-011 Guard)"
-        subtitle="Mandatory carrier code and tracking number before SHIPPED"
+        title="Cập nhật trạng thái vận đơn (BR-011 Guard)"
+        subtitle="Yêu cầu chọn đối tác vận chuyển và mã vận đơn hợp lệ khi HANDED_OVER / SHIPPED"
         footerActions={
           <>
             <button
               onClick={() => setIsUpdateModalOpen(false)}
               className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
             >
-              Cancel
+              Hủy bỏ
             </button>
             <button
               disabled={
                 updateShipmentMutation.isPending ||
-                (targetStatus === 'SHIPPED' && (!carrierName.trim() || !trackingCode.trim()))
+                ((targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') &&
+                  (!trackingNumber.trim() || !/^[a-zA-Z0-9-]{8,32}$/.test(trackingNumber.trim())))
               }
               onClick={() => {
                 if (selectedShipment) {
                   updateShipmentMutation.mutate({
                     orderId: selectedShipment.orderId,
-                    carrier_name: carrierName,
-                    tracking_code: trackingCode,
+                    carrier_code: carrierCode,
+                    tracking_number: trackingNumber,
                     target_status: targetStatus,
                   });
                 }
               }}
               className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
             >
-              {updateShipmentMutation.isPending ? 'Committing...' : `Set ${targetStatus}`}
+              {updateShipmentMutation.isPending ? 'Đang lưu...' : `Xác nhận chuyển ${targetStatus}`}
             </button>
           </>
         }
       >
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 uppercase">Target Status</label>
+            <label className="text-xs font-semibold text-slate-300 uppercase">Trạng thái chuyển tiếp (Target Status)</label>
             <select
               value={targetStatus}
               onChange={(e) => setTargetStatus(e.target.value as ShipmentStatus)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
             >
-              <option value="SHIPPED">SHIPPED - Handed over to logistics carrier</option>
-              <option value="DELIVERED">DELIVERED - Confirmed delivered to customer</option>
-              <option value="DELIVERY_FAILED">DELIVERY_FAILED - Delivery attempt unsuccessful</option>
-              <option value="RETURNED">RETURNED - Package returned to warehouse</option>
+              <option value="HANDED_OVER">HANDED_OVER - Đã bàn giao cho đơn vị vận chuyển</option>
+              <option value="SHIPPED">SHIPPED - Đang vận chuyển tới khách hàng (In Transit)</option>
+              <option value="DELIVERED">DELIVERED - Giao hàng thành công (Terminal)</option>
+              <option value="DELIVERY_FAILED">DELIVERY_FAILED - Giao hàng không thành công</option>
+              <option value="RETURNED">RETURNED - Kiện hàng chuyển hoàn về kho</option>
             </select>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 uppercase">Carrier Name</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase">Đơn vị vận chuyển (Carrier Partner)</label>
+              {(targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') && (
+                <span className="text-[11px] text-rose-400 font-semibold">* Bắt buộc</span>
+              )}
+            </div>
             <select
-              value={carrierName}
-              onChange={(e) => setCarrierName(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+              value={carrierCode}
+              onChange={(e) => setCarrierCode(e.target.value as CarrierCode)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-medium"
             >
-              <option value="GIAO_HANG_NHANH">Giao Hang Nhanh (GHN)</option>
-              <option value="VIETTEL_POST">Viettel Post</option>
-              <option value="GIAO_HANG_TIET_KIEM">Giao Hang Tiet Kiem (GHTK)</option>
-              <option value="VNPOST">VNPost Express</option>
+              <option value="GHN">GHN (Giao Hàng Nhanh)</option>
+              <option value="GHTK">GHTK (Giao Hàng Tiết Kiệm)</option>
+              <option value="VIETTELPOST">VIETTELPOST (Viettel Post)</option>
+              <option value="VNPOST">VNPOST (VNPost Express)</option>
             </select>
           </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 uppercase">
-                Tracking Number (Mandatory for SHIPPED per BR-011)
+                Mã vận đơn (Tracking Number)
               </label>
-              {targetStatus === 'SHIPPED' && <span className="text-[11px] text-rose-400">* Required</span>}
+              {(targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') && (
+                <span
+                  className={`text-[11px] font-mono ${
+                    trackingNumber.trim().length > 0 && !/^[a-zA-Z0-9-]{8,32}$/.test(trackingNumber.trim())
+                      ? 'text-rose-400'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  {trackingNumber.trim().length}/32 ký tự (tối thiểu 8)
+                </span>
+              )}
             </div>
             <input
               type="text"
-              value={trackingCode}
-              onChange={(e) => setTrackingCode(e.target.value)}
-              placeholder="e.g. GHN-9988112-VN"
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
-              required={targetStatus === 'SHIPPED'}
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="Ví dụ: GHN-8849102-VN, VTP-9921445-VN"
+              className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none ${
+                (targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') &&
+                trackingNumber.trim().length > 0 &&
+                !/^[a-zA-Z0-9-]{8,32}$/.test(trackingNumber.trim())
+                  ? 'border-rose-500 focus:border-rose-500'
+                  : 'border-slate-700 focus:border-indigo-500'
+              }`}
+              required={targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED'}
             />
+            {(targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') &&
+              trackingNumber.trim().length > 0 &&
+              !/^[a-zA-Z0-9-]{8,32}$/.test(trackingNumber.trim()) && (
+                <p className="text-[11px] text-rose-400 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  Mã vận đơn phải gồm 8 - 32 ký tự chữ, số hoặc dấu gạch nối (^[a-zA-Z0-9-]{'{8,32}'}$)
+                </p>
+              )}
+            {(targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') &&
+              trackingNumber.trim().length === 0 && (
+                <p className="text-[11px] text-amber-400">
+                  * Bắt buộc phải nhập mã vận đơn khi chuyển sang trạng thái {targetStatus} theo quy tắc nghiệp vụ BR-011.
+                </p>
+              )}
           </div>
         </div>
       </Modal>

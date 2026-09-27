@@ -20,6 +20,7 @@ describe('Admin Web Portal Integration', () => {
     expect(screen.getByText('Customer Support')).toBeInTheDocument();
     expect(screen.getByText('Dynamic Configuration')).toBeInTheDocument();
     expect(screen.getByText('Compliance Audit Logs')).toBeInTheDocument();
+    expect(screen.getByText('Quản lý vai trò & quyền')).toBeInTheDocument();
 
     // System Discovery and Gateway Status
     expect(screen.getByText('EUREKA:8761')).toBeInTheDocument();

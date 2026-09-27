@@ -16,6 +16,7 @@ import { ShipmentsPage } from './pages/ShipmentsPage';
 import { ConfigurationsPage } from './pages/ConfigurationsPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
 import { SupportPage } from './pages/SupportPage';
+import { RolesManagementPage } from './pages/RolesManagementPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,11 +49,14 @@ export const App: React.FC = () => {
               }
             />
 
-            {/* 3. Orders Management - Super Admin, Ops Admin, Support Agent */}
+            {/* 3. Orders Management - Super Admin, Ops Admin, Order Operator, Support Agent */}
             <Route
               path="orders"
               element={
-                <RbacGuard roles={['SUPER_ADMIN', 'OPS_ADMIN', 'ORDER_OPS_ADMIN', 'SUPPORT_AGENT']} showAccessDenied>
+                <RbacGuard
+                  roles={['SUPER_ADMIN', 'OPS_ADMIN', 'ORDER_OPS_ADMIN', 'ORDER_OPERATOR', 'SUPPORT_AGENT']}
+                  showAccessDenied
+                >
                   <OrdersPage />
                 </RbacGuard>
               }
@@ -78,11 +82,11 @@ export const App: React.FC = () => {
               }
             />
 
-            {/* 6. Payment Reconciliation - Super Admin, Ops Admin */}
+            {/* 6. Payment Reconciliation - Super Admin, Financial Auditor, Ops Admin */}
             <Route
               path="reconciliation"
               element={
-                <RbacGuard roles={['SUPER_ADMIN', 'OPS_ADMIN']} showAccessDenied>
+                <RbacGuard roles={['SUPER_ADMIN', 'OPS_ADMIN', 'FINANCIAL_AUDITOR']} showAccessDenied>
                   <PaymentReconciliationPage />
                 </RbacGuard>
               }
@@ -118,12 +122,22 @@ export const App: React.FC = () => {
               }
             />
 
-            {/* 10. Customer Support Operations - Super Admin, Support Agent */}
+            {/* 10. Customer Support Operations - Super Admin, Support Agent, Customer Support */}
             <Route
               path="support"
               element={
-                <RbacGuard roles={['SUPER_ADMIN', 'SUPPORT_AGENT']} showAccessDenied>
+                <RbacGuard roles={['SUPER_ADMIN', 'SUPPORT_AGENT', 'CUSTOMER_SUPPORT']} showAccessDenied>
                   <SupportPage />
+                </RbacGuard>
+              }
+            />
+
+            {/* 11. Role & Permission Management - Super Admin (FR-033, BR-018) */}
+            <Route
+              path="roles"
+              element={
+                <RbacGuard roles={['SUPER_ADMIN']} showAccessDenied>
+                  <RolesManagementPage />
                 </RbacGuard>
               }
             />
