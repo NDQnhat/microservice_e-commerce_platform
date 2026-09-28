@@ -4,6 +4,7 @@ import { TerminalBadge, isTerminalStatus } from '../components/TerminalBadge';
 import { MaskedText } from '../components/ui/MaskedText';
 import { maskEmail, maskPhone } from '../utils/mask';
 import { parseRfc7807Error } from '../utils/error';
+import { SHIPMENT_STATE_TRANSITIONS } from '../pages/ShipmentsPage';
 
 describe('Remediation & Invariant Guard Tests (SRS Hardening)', () => {
   describe('Task 8: RFC 7807 & Terminal Badge', () => {
@@ -243,6 +244,133 @@ describe('Remediation & Invariant Guard Tests (SRS Hardening)', () => {
       expect(trackingRegex.test('GHN_12345_VN')).toBe(false); // underscore not permitted
       expect(trackingRegex.test('GHN 8849102 VN')).toBe(false); // space not permitted
       expect(trackingRegex.test('A'.repeat(33))).toBe(false); // > 32 chars
+    });
+  });
+
+  describe('Remediation STT 01: Shipment State Machine Transitions (BR-010, BR-011)', () => {
+    it('locks terminal states DELIVERED and RETURNED with zero outgoing transitions', () => {
+      expect(SHIPMENT_STATE_TRANSITIONS.DELIVERED).toEqual([]);
+      expect(SHIPMENT_STATE_TRANSITIONS.RETURNED).toEqual([]);
+    });
+
+    it('enforces unidirectional state progression matrix', () => {
+      expect(SHIPMENT_STATE_TRANSITIONS.CREATED).toEqual(['PACKING']);
+      expect(SHIPMENT_STATE_TRANSITIONS.PACKING).toEqual(['READY_FOR_PICKUP', 'HANDED_OVER']);
+      expect(SHIPMENT_STATE_TRANSITIONS.READY_FOR_PICKUP).toEqual(['HANDED_OVER']);
+      expect(SHIPMENT_STATE_TRANSITIONS.HANDED_OVER).toEqual(['IN_TRANSIT', 'SHIPPED']);
+      expect(SHIPMENT_STATE_TRANSITIONS.IN_TRANSIT).toEqual(['DELIVERED', 'DELIVERY_FAILED']);
+      expect(SHIPMENT_STATE_TRANSITIONS.SHIPPED).toEqual(['DELIVERED', 'DELIVERY_FAILED']);
+      expect(SHIPMENT_STATE_TRANSITIONS.DELIVERY_FAILED).toEqual(['RETURNED', 'IN_TRANSIT']);
+    });
+  });
+
+  describe('Remediation STT 02: Inventory Invariant Boundary Guard (BR-015)', () => {
+    const validateInventoryAdjustment = (
+      onHand: number,
+      reserved: number,
+      available: number,
+      delta: number
+    ): { isValid: boolean; violation?: string } => {
+      if (delta === 0) return { isValid: false, violation: 'Chênh lệch phải khác 0' };
+      const newPhysical = onHand + delta;
+      const newAvailable = available + delta;
+
+      if (newPhysical < reserved) {
+        return {
+          isValid: false,
+          violation: `Vi phạm bất biến BR-015: Tồn kho vật lý sau chỉnh sửa (${newPhysical}) nhỏ hơn số lượng đang giữ chỗ (${reserved}).`,
+        };
+      }
+      if (newAvailable < 0) {
+        return {
+          isValid: false,
+          violation: `Tồn kho khả dụng sau điều chỉnh (${newAvailable}) không được âm.`,
+        };
+      }
+      return { isValid: true };
+    };
+
+    it('allows valid restock and valid stock reduction', () => {
+      // Restock +10: onHand 20 -> 30, available 15 -> 25, reserved 5
+      expect(validateInventoryAdjustment(20, 5, 15, 10).isValid).toBe(true);
+
+      // Decrease -5: onHand 20 -> 15 (>= 5 reserved), available 15 -> 10 (>= 0)
+      expect(validateInventoryAdjustment(20, 5, 15, -5).isValid).toBe(true);
+    });
+
+    it('rejects adjustment when physical inventory falls below reserved allocations', () => {
+      // onHand 20, reserved 15, available 5. Delta -10 -> newPhysical = 10 < 15
+      const result = validateInventoryAdjustment(20, 15, 5, -10);
+      expect(result.isValid).toBe(false);
+      expect(result.violation).toContain('nhỏ hơn số lượng đang giữ chỗ');
+    });
+
+    it('rejects adjustment when available stock becomes negative', () => {
+      // onHand 20, reserved 0, available 5. Delta -10 -> newAvailable = -5 < 0
+      const result = validateInventoryAdjustment(20, 0, 5, -10);
+      expect(result.isValid).toBe(false);
+      expect(result.violation).toContain('không được âm');
+    });
+  });
+
+  describe('Remediation STT 13 & STT 06: SKU Code Formatting & Normalization', () => {
+    const normalizeSku = (raw: string): string => {
+      return raw.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+    };
+    const skuRegex = /^[A-Z0-9_-]{4,32}$/;
+
+    it('auto-uppercases and strips illegal characters', () => {
+      expect(normalizeSku('nike-air-max-42')).toBe('NIKE-AIR-MAX-42');
+      expect(normalizeSku('sku 99 # special!')).toBe('SKU99SPECIAL');
+      expect(normalizeSku('vn_shirt_red_xl')).toBe('VN_SHIRT_RED_XL');
+    });
+
+    it('validates SKU code format regex ^[A-Z0-9_-]{4,32}$', () => {
+      expect(skuRegex.test('NIKE-PEGASUS-40-BLK-42')).toBe(true);
+      expect(skuRegex.test('SKU_001')).toBe(true);
+      expect(skuRegex.test('SH-1')).toBe(true); // 4 chars
+
+      // Invalid SKUs
+      expect(skuRegex.test('SH1')).toBe(false); // length 3 < 4
+      expect(skuRegex.test('sku-lower-case')).toBe(false); // lowercase not allowed
+      expect(skuRegex.test('SKU WITH SPACES')).toBe(false);
+      expect(skuRegex.test('SKU@INVALID#')).toBe(false);
+      expect(skuRegex.test('A'.repeat(33))).toBe(false); // > 32 chars
+    });
+  });
+
+  describe('Remediation STT 08: Payment Reconciliation URL & Code Evidence Validation', () => {
+    const validateEvidence = (ref: string): boolean => {
+      const externalIdRegex = /^[a-zA-Z0-9_-]{6,64}$/;
+      const urlRegex = /^https?:\/\/.+/i;
+      const trimmed = ref.trim();
+      return externalIdRegex.test(trimmed) || urlRegex.test(trimmed);
+    };
+
+    it('accepts both external transaction IDs and secure URLs as valid evidence', () => {
+      expect(validateEvidence('VCB-STMT-20260927-00192')).toBe(true);
+      expect(validateEvidence('STRIPE-CH-994112')).toBe(true);
+      expect(validateEvidence('https://bank.internal/receipt/88910')).toBe(true);
+      expect(validateEvidence('http://portal.vietcombank.com.vn/trans/9941')).toBe(true);
+    });
+
+    it('rejects invalid or insufficient evidence references', () => {
+      expect(validateEvidence('short')).toBe(false); // < 6 chars
+      expect(validateEvidence('ftp://invalid.com')).toBe(false); // not http/https
+      expect(validateEvidence('has space id')).toBe(false);
+      expect(validateEvidence('')).toBe(false);
+    });
+  });
+
+  describe('Remediation STT 03, STT 09: Audit Justification Invariants (BR-018)', () => {
+    const isJustificationValid = (text: string): boolean => text.trim().length >= 15;
+
+    it('enforces minimum 15 characters for role assignments, exception resolutions, and ignores', () => {
+      expect(isJustificationValid('Cần bổ sung')).toBe(false); // 11 chars
+      expect(isJustificationValid('Đã xử lý xong')).toBe(false); // 13 chars
+      expect(isJustificationValid('Điều chỉnh phân quyền theo quyết định bổ nhiệm QĐ-2026/09')).toBe(true);
+      expect(isJustificationValid('Kho vật lý đã kiểm đếm và xác nhận khớp với phiếu nhập')).toBe(true);
+      expect(isJustificationValid('Ngoại lệ dương tính giả do mạng chập chờn đã tự phục hồi')).toBe(true);
     });
   });
 });

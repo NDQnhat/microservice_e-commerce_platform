@@ -10,6 +10,7 @@ import { JsonViewer } from '@/components/ui/JsonViewer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
 import { useAuthStore } from '@/store/auth-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   AlertTriangle,
   Search,
@@ -126,6 +127,7 @@ export const ExceptionsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<ExceptionRecordStatus | ''>('OPEN');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [selectedRecord, setSelectedRecord] = useState<ExceptionRecord | null>(null);
 
   // Modal states
@@ -233,8 +235,8 @@ export const ExceptionsPage: React.FC = () => {
   });
 
   const records = (data?.content || []).filter((r) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedSearch.trim()) return true;
+    const q = debouncedSearch.toLowerCase();
     return (
       r.id.toLowerCase().includes(q) ||
       r.referenceId.toLowerCase().includes(q) ||
@@ -530,17 +532,17 @@ export const ExceptionsPage: React.FC = () => {
               Cancel
             </button>
             <button
-              disabled={!resolutionNotes.trim() || resolveMutation.isPending}
+              disabled={resolutionNotes.trim().length < 15 || resolveMutation.isPending}
               onClick={() => {
                 if (selectedRecord) {
                   resolveMutation.mutate({
                     id: selectedRecord.id,
                     action: resolutionAction,
-                    notes: resolutionNotes,
+                    notes: resolutionNotes.trim(),
                   });
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg transition"
+              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition"
             >
               {resolveMutation.isPending ? 'Committing...' : 'Confirm Resolution'}
             </button>
@@ -565,13 +567,19 @@ export const ExceptionsPage: React.FC = () => {
               <label className="text-xs font-semibold text-slate-300 uppercase">
                 Resolution Notes (Mandatory per BR-018)
               </label>
-              <span className="text-[11px] text-rose-400">* Required</span>
+              <span
+                className={`text-[11px] font-mono ${
+                  resolutionNotes.trim().length >= 15 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
+                }`}
+              >
+                {resolutionNotes.trim().length} / 15 ký tự tối thiểu
+              </span>
             </div>
             <textarea
               rows={4}
               value={resolutionNotes}
               onChange={(e) => setResolutionNotes(e.target.value)}
-              placeholder="Detail root cause analysis, corrective step taken, and operator audit justification..."
+              placeholder="Detail root cause analysis, corrective step taken, and operator audit justification (tối thiểu 15 ký tự)..."
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
             />
           </div>
@@ -592,7 +600,7 @@ export const ExceptionsPage: React.FC = () => {
       <Modal
         isOpen={isIgnoreModalOpen}
         onClose={() => setIsIgnoreModalOpen(false)}
-        title="Ignore Exception Record"
+        title="Ignore Exception Record (BR-018)"
         subtitle="Mandatory business justification for dismissing discrepancy without action"
         footerActions={
           <>
@@ -603,16 +611,16 @@ export const ExceptionsPage: React.FC = () => {
               Cancel
             </button>
             <button
-              disabled={!ignoreReason.trim() || ignoreMutation.isPending}
+              disabled={ignoreReason.trim().length < 15 || ignoreMutation.isPending}
               onClick={() => {
                 if (selectedRecord) {
                   ignoreMutation.mutate({
                     id: selectedRecord.id,
-                    notes: ignoreReason,
+                    notes: ignoreReason.trim(),
                   });
                 }
               }}
-              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg transition"
+              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition"
             >
               {ignoreMutation.isPending ? 'Marking...' : 'Confirm Ignore'}
             </button>
@@ -620,15 +628,35 @@ export const ExceptionsPage: React.FC = () => {
         }
       >
         <div className="space-y-4">
+          {/* Warning Banner */}
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 space-y-1">
+            <p className="font-bold flex items-center gap-1.5 text-rose-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+              Cảnh báo: Hành động không thể hoàn tác (BR-018)
+            </p>
+            <p className="text-[11px] text-rose-300/90 leading-relaxed">
+              Bỏ qua ngoại lệ là hành động không thể hoàn tác, sự cố sẽ không còn được hệ thống giám sát tự động và sẽ được lưu trữ vĩnh viễn vào nhật ký kiểm toán.
+            </p>
+          </div>
+
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 uppercase">
-              Justification Reason (Mandatory per BR-018)
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase">
+                Justification Reason (Mandatory per BR-018)
+              </label>
+              <span
+                className={`text-[11px] font-mono ${
+                  ignoreReason.trim().length >= 15 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
+                }`}
+              >
+                {ignoreReason.trim().length} / 15 ký tự tối thiểu
+              </span>
+            </div>
             <textarea
               rows={3}
               value={ignoreReason}
               onChange={(e) => setIgnoreReason(e.target.value)}
-              placeholder="State reason why this discrepancy is considered benign or false positive..."
+              placeholder="State reason why this discrepancy is considered benign or false positive (tối thiểu 15 ký tự)..."
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
             />
           </div>

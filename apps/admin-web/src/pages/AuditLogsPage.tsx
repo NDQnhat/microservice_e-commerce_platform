@@ -6,6 +6,7 @@ import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { JsonViewer } from '@/components/ui/JsonViewer';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   ShieldAlert,
   Search,
@@ -14,6 +15,8 @@ import {
   ShieldCheck,
   RefreshCw,
   Lock,
+  Download,
+  Calendar,
 } from 'lucide-react';
 
 const MOCK_AUDIT_LOGS: AuditLog[] = [
@@ -72,7 +75,10 @@ const MOCK_AUDIT_LOGS: AuditLog[] = [
 
 export const AuditLogsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [actionTypeFilter, setActionTypeFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
   // Fetch Audit Logs (API-AUDIT-001)
@@ -95,15 +101,79 @@ export const AuditLogsPage: React.FC = () => {
   });
 
   const logs = (data?.content || []).filter((l) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      l.id.toLowerCase().includes(q) ||
-      l.entityId.toLowerCase().includes(q) ||
-      l.actorId.toLowerCase().includes(q) ||
-      (l.reason && l.reason.toLowerCase().includes(q))
-    );
+    // Search query filter
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      const matchesSearch =
+        l.id.toLowerCase().includes(q) ||
+        l.entityId.toLowerCase().includes(q) ||
+        l.actorId.toLowerCase().includes(q) ||
+        (l.reason && l.reason.toLowerCase().includes(q));
+      if (!matchesSearch) return false;
+    }
+
+    // Date range filter
+    if (fromDate) {
+      const logTime = new Date(l.createdAt).getTime();
+      const start = new Date(fromDate).setHours(0, 0, 0, 0);
+      if (logTime < start) return false;
+    }
+
+    if (toDate) {
+      const logTime = new Date(l.createdAt).getTime();
+      const end = new Date(toDate).setHours(23, 59, 59, 999);
+      if (logTime > end) return false;
+    }
+
+    return true;
   });
+
+  // Export CSV Handler (STT 10)
+  const handleExportCsv = () => {
+    const headers = [
+      'Log ID',
+      'Action Type',
+      'Actor ID',
+      'Actor Role',
+      'Entity Type',
+      'Entity ID',
+      'Before Value',
+      'After Value',
+      'Justification Reason',
+      'Logged At',
+    ];
+
+    const escapeCsv = (val: string | undefined | null) => {
+      if (val === undefined || val === null) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = logs.map((log) => [
+      escapeCsv(log.id),
+      escapeCsv(log.actionType),
+      escapeCsv(log.actorId),
+      escapeCsv(log.actorRole),
+      escapeCsv(log.entityType),
+      escapeCsv(log.entityId),
+      escapeCsv(log.beforeValue),
+      escapeCsv(log.afterValue),
+      escapeCsv(log.reason),
+      escapeCsv(log.createdAt),
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const today = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `audit-logs-export-${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
@@ -120,6 +190,14 @@ export const AuditLogsPage: React.FC = () => {
             <Lock className="h-3.5 w-3.5" />
             <span>Strict Read-Only Ledger (NFR-AUDIT-002)</span>
           </div>
+          <button
+            onClick={handleExportCsv}
+            disabled={logs.length === 0}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-xs transition"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Xuất báo cáo kiểm toán (CSV)</span>
+          </button>
           <button
             onClick={() => refetch()}
             disabled={isFetching}
@@ -144,7 +222,7 @@ export const AuditLogsPage: React.FC = () => {
 
       {/* Search & Filters */}
       <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/90 backdrop-blur flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full md:w-72">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
           <input
             type="text"
@@ -155,19 +233,54 @@ export const AuditLogsPage: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <Filter className="h-4 w-4 text-slate-500 shrink-0" />
-          <select
-            value={actionTypeFilter}
-            onChange={(e) => setActionTypeFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
-          >
-            <option value="">All Action Types</option>
-            <option value="CONFIG_UPDATE">CONFIG_UPDATE</option>
-            <option value="MANUAL_PAYMENT_RECONCILE">MANUAL_PAYMENT_RECONCILE</option>
-            <option value="INVENTORY_ADJUSTMENT">INVENTORY_ADJUSTMENT</option>
-            <option value="ACCOUNT_UNLOCK">ACCOUNT_UNLOCK</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {/* Date Range Filters (STT 10) */}
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs">
+            <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+            <span className="text-slate-500 text-[11px] whitespace-nowrap">Từ:</span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="bg-transparent text-slate-300 focus:outline-none text-xs"
+            />
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1 text-xs">
+            <span className="text-slate-500 text-[11px] whitespace-nowrap">Đến:</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="bg-transparent text-slate-300 focus:outline-none text-xs"
+            />
+          </div>
+          {(fromDate || toDate) && (
+            <button
+              onClick={() => {
+                setFromDate('');
+                setToDate('');
+              }}
+              className="text-xs text-rose-400 hover:text-rose-300 px-1 font-semibold"
+              title="Xóa khoảng thời gian"
+            >
+              ✕ Xóa ngày
+            </button>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-slate-500 shrink-0" />
+            <select
+              value={actionTypeFilter}
+              onChange={(e) => setActionTypeFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">All Action Types</option>
+              <option value="CONFIG_UPDATE">CONFIG_UPDATE</option>
+              <option value="MANUAL_PAYMENT_RECONCILE">MANUAL_PAYMENT_RECONCILE</option>
+              <option value="INVENTORY_ADJUSTMENT">INVENTORY_ADJUSTMENT</option>
+              <option value="ACCOUNT_UNLOCK">ACCOUNT_UNLOCK</option>
+            </select>
+          </div>
         </div>
       </div>
 

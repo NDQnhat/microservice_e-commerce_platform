@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Product, Category, PageResponse } from '@/types';
+import { Product, Category, PageResponse, MasterAttribute, SkuMedia, Sku } from '@/types';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { SkeletonTable } from '@/components/ui/SkeletonTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   Package,
   Tag,
@@ -20,7 +21,19 @@ import {
   FolderTree,
   AlertTriangle,
   Ban,
+  Sliders,
+  Image as ImageIcon,
+  UploadCloud,
+  Trash2,
+  Star,
 } from 'lucide-react';
+
+const INITIAL_MASTER_ATTRIBUTES: MasterAttribute[] = [
+  { id: 'attr-1', code: 'COLOR', name: 'Màu sắc (Color)', values: ['Black', 'White', 'Navy', 'Red', 'Gray', 'Olive'] },
+  { id: 'attr-2', code: 'SIZE', name: 'Kích cỡ (Size)', values: ['S', 'M', 'L', 'XL', '40 EU', '41 EU', '42 EU', '43 EU'] },
+  { id: 'attr-3', code: 'MATERIAL', name: 'Chất liệu (Material)', values: ['Cotton', 'Leather', 'Mesh', 'Synthetic', 'Carbon Fiber'] },
+  { id: 'attr-4', code: 'STORAGE', name: 'Dung lượng (Storage)', values: ['64GB', '128GB', '256GB', '512GB', '1TB'] },
+];
 
 const MOCK_CATEGORIES: Category[] = [
   { id: 'cat-001', name: 'Footwear', slug: 'footwear', parentId: null, isActive: true, sortOrder: 1, createdAt: '2026-09-01T00:00:00Z' },
@@ -95,7 +108,24 @@ export const CatalogPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'products' | 'categories' | 'pricing'>('products');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  // Master Attributes State (STT 06)
+  const [masterAttributes, setMasterAttributes] = useState<MasterAttribute[]>(INITIAL_MASTER_ATTRIBUTES);
+  const [isMasterAttrModalOpen, setIsMasterAttrModalOpen] = useState(false);
+  const [newAttrCode, setNewAttrCode] = useState('');
+  const [newAttrName, setNewAttrName] = useState('');
+  const [newAttrValues, setNewAttrValues] = useState('');
+
+  // SKU Management State (STT 06 & STT 13)
+  const [isSkuModalOpen, setIsSkuModalOpen] = useState(false);
+  const [targetProduct, setTargetProduct] = useState<Product | null>(null);
+  const [skuCode, setSkuCode] = useState('');
+  const [skuBarcode, setSkuBarcode] = useState('');
+  const [skuPrice, setSkuPrice] = useState('2000000');
+  const [skuAttributes, setSkuAttributes] = useState<Record<string, string>>({});
+  const [skuMedia, setSkuMedia] = useState<SkuMedia[]>([]);
 
   // Modals
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -104,6 +134,124 @@ export const CatalogPage: React.FC = () => {
   const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
   const [isDiscontinueModalOpen, setIsDiscontinueModalOpen] = useState(false);
   const [productToDiscontinue, setProductToDiscontinue] = useState<Product | null>(null);
+
+  const handleOpenAddSku = (prod: Product) => {
+    setTargetProduct(prod);
+    setSkuCode('');
+    setSkuBarcode('');
+    setSkuPrice('2000000');
+    const initialAttrs: Record<string, string> = {};
+    masterAttributes.slice(0, 2).forEach((attr) => {
+      if (attr.values.length > 0) {
+        initialAttrs[attr.code.toLowerCase()] = attr.values[0];
+      }
+    });
+    setSkuAttributes(initialAttrs);
+    setSkuMedia([
+      {
+        id: `media-${Date.now()}-1`,
+        fileName: 'primary-product-shot.jpg',
+        url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=80',
+        isPrimary: true,
+        displayOrder: 1,
+      },
+    ]);
+    setIsSkuModalOpen(true);
+  };
+
+  const handleUploadMedia = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newMediaItems: SkuMedia[] = Array.from(files).map((file, idx) => ({
+      id: `media-${Date.now()}-${idx}`,
+      fileName: file.name,
+      url: URL.createObjectURL(file),
+      isPrimary: skuMedia.length === 0 && idx === 0,
+      displayOrder: skuMedia.length + idx + 1,
+    }));
+    setSkuMedia((prev) => [...prev, ...newMediaItems]);
+  };
+
+  const handleSetPrimaryMedia = (id: string) => {
+    setSkuMedia((prev) =>
+      prev.map((m) => ({
+        ...m,
+        isPrimary: m.id === id,
+      }))
+    );
+  };
+
+  const handleRemoveMedia = (id: string) => {
+    setSkuMedia((prev) => {
+      const filtered = prev.filter((m) => m.id !== id);
+      if (filtered.length > 0 && !filtered.some((m) => m.isPrimary)) {
+        filtered[0].isPrimary = true;
+      }
+      return filtered;
+    });
+  };
+
+  const isSkuCodeValid = /^[A-Z0-9_-]{4,32}$/.test(skuCode.trim());
+
+  const handleSaveSku = () => {
+    if (!isSkuCodeValid) {
+      showError('Mã SKU không hợp lệ', 'Mã SKU phải chứa từ 4-32 ký tự, chỉ gồm chữ in hoa, số, gạch nối hoặc gạch dưới (^[A-Z0-9_-]{4,32}$).');
+      return;
+    }
+    if (!targetProduct) return;
+
+    const newSku: Sku = {
+      id: `sku-${skuCode.toLowerCase()}`,
+      productId: targetProduct.id,
+      skuCode: skuCode.trim(),
+      barcode: skuBarcode.trim() || undefined,
+      attributes: skuAttributes,
+      basePrice: Number(skuPrice) || 0,
+      status: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+    };
+
+    if (targetProduct.skus) {
+      targetProduct.skus.push(newSku);
+    } else {
+      targetProduct.skus = [newSku];
+    }
+
+    if (selectedProduct && selectedProduct.id === targetProduct.id) {
+      setSelectedProduct({
+        ...selectedProduct,
+        skus: [...(selectedProduct.skus || []), newSku],
+      });
+    }
+
+    showSuccess('SKU Variant Added', `Biến thể ${newSku.skuCode} đã được thêm thành công kèm ${skuMedia.length} hình ảnh.`);
+    setIsSkuModalOpen(false);
+  };
+
+  const handleAddMasterAttribute = () => {
+    if (!newAttrCode.trim() || !newAttrName.trim()) {
+      showError('Vui lòng nhập Mã và Tên thuộc tính');
+      return;
+    }
+    const code = newAttrCode.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
+    const values = newAttrValues
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    const newAttr: MasterAttribute = {
+      id: `attr-${Date.now()}`,
+      code,
+      name: newAttrName.trim(),
+      values: values.length > 0 ? values : ['Default'],
+    };
+
+    setMasterAttributes((prev) => [...prev, newAttr]);
+    showSuccess('Thuộc tính đã tạo', `Đã thêm Master Attribute "${newAttr.name}" (${newAttr.code})`);
+    setNewAttrCode('');
+    setNewAttrName('');
+    setNewAttrValues('');
+  };
 
   // New Product State
   const [newProductName, setNewProductName] = useState('');
@@ -237,8 +385,8 @@ export const CatalogPage: React.FC = () => {
   });
 
   const products = (productData?.content || []).filter((p) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedSearch.trim()) return true;
+    const q = debouncedSearch.toLowerCase();
     return p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q);
   });
 
@@ -303,13 +451,22 @@ export const CatalogPage: React.FC = () => {
         {/* Action Button */}
         <div>
           {activeTab === 'products' && (
-            <button
-              onClick={() => setIsProductModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Product</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsMasterAttrModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+              >
+                <Sliders className="h-4 w-4 text-indigo-400" />
+                <span>Master Attributes ({masterAttributes.length})</span>
+              </button>
+              <button
+                onClick={() => setIsProductModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Product</span>
+              </button>
+            </div>
           )}
           {activeTab === 'categories' && (
             <button
@@ -598,6 +755,13 @@ export const CatalogPage: React.FC = () => {
                 <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                   Associated SKU Variants ({selectedProduct.skus?.length || 0})
                 </label>
+                <button
+                  onClick={() => handleOpenAddSku(selectedProduct)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition"
+                >
+                  <Plus className="h-3 w-3" />
+                  <span>Thêm SKU biến thể</span>
+                </button>
               </div>
 
               <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950 divide-y divide-slate-800">
@@ -965,6 +1129,282 @@ export const CatalogPage: React.FC = () => {
           <p className="text-xs text-slate-400">
             Sau khi chuyển sang trạng thái <strong>DISCONTINUED</strong>, sản phẩm không thể tiếp tục nhận đặt hàng từ phía khách hàng. Hệ thống nghiêm cấm thao tác xóa cứng (Hard Delete) để bảo toàn tính toàn vẹn dữ liệu cho các phân hệ Order và Inventory.
           </p>
+        </div>
+      </Modal>
+
+      {/* Modal: Master Attributes Management (STT 06) */}
+      <Modal
+        isOpen={isMasterAttrModalOpen}
+        onClose={() => setIsMasterAttrModalOpen(false)}
+        title="Quản lý Thuộc tính Chuẩn hóa (Master Attributes)"
+        subtitle="Danh mục các thuộc tính dùng chung cho biến thể SKU (Color, Size, Material, Storage)"
+        footerActions={
+          <button
+            onClick={() => setIsMasterAttrModalOpen(false)}
+            className="px-4 py-2 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition"
+          >
+            Đóng
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          {/* Create New Master Attribute */}
+          <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+              <Plus className="h-3.5 w-3.5 text-indigo-400" />
+              <span>Thêm thuộc tính mới</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-300">Mã thuộc tính (Code)</label>
+                <input
+                  type="text"
+                  placeholder="VD: COLOR, SIZE, RAM"
+                  value={newAttrCode}
+                  onChange={(e) => setNewAttrCode(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-300">Tên hiển thị</label>
+                <input
+                  type="text"
+                  placeholder="VD: Màu sắc, Kích cỡ, Bộ nhớ RAM"
+                  value={newAttrName}
+                  onChange={(e) => setNewAttrName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-slate-300">Các giá trị mặc định (phân cách bởi dấu phẩy)</label>
+              <input
+                type="text"
+                placeholder="VD: Đen, Trắng, Xanh Navy, Đỏ"
+                value={newAttrValues}
+                onChange={(e) => setNewAttrValues(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleAddMasterAttribute}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition"
+              >
+                Thêm thuộc tính
+              </button>
+            </div>
+          </div>
+
+          {/* List Existing Attributes */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              Danh sách thuộc tính hiện có ({masterAttributes.length})
+            </label>
+            <div className="space-y-2.5 max-h-60 overflow-y-auto">
+              {masterAttributes.map((attr) => (
+                <div key={attr.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-white text-xs">{attr.name}</span>
+                      <span className="font-mono text-indigo-400 text-[11px] ml-2 font-semibold">({attr.code})</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">{attr.values.length} giá trị</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {attr.values.map((val) => (
+                      <span
+                        key={val}
+                        className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-900 text-slate-300 border border-slate-800"
+                      >
+                        {val}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Add SKU Variant with Media Dropzone & Auto-uppercase (STT 06 & STT 13) */}
+      <Modal
+        isOpen={isSkuModalOpen}
+        onClose={() => setIsSkuModalOpen(false)}
+        title="Thêm Biến thể SKU Mới (Variant Creation)"
+        subtitle={targetProduct ? `Sản phẩm gốc: ${targetProduct.name} (#${targetProduct.id})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => setIsSkuModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={!isSkuCodeValid}
+              onClick={handleSaveSku}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition shadow-sm"
+            >
+              Lưu biến thể SKU
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* SKU Code Input (STT 13 Auto-uppercase & regex ^[A-Z0-9_-]{4,32}$) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 uppercase">
+                  Mã SKU (SKU Code) *
+                </label>
+                <span
+                  className={`text-[10px] font-mono font-semibold ${
+                    isSkuCodeValid ? 'text-emerald-400' : 'text-slate-500'
+                  }`}
+                >
+                  {isSkuCodeValid ? 'Hợp lệ' : '^[A-Z0-9_-]{4,32}$'}
+                </span>
+              </div>
+              <input
+                type="text"
+                placeholder="VD: NIKE-PEG40-NVY-42"
+                value={skuCode}
+                onChange={(e) => setSkuCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
+                className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none ${
+                  skuCode && !isSkuCodeValid
+                    ? 'border-rose-500 focus:border-rose-500'
+                    : 'border-slate-700 focus:border-indigo-500'
+                }`}
+              />
+              <p className="text-[10px] text-slate-500">
+                Tự động viết hoa & loại bỏ ký tự đặc biệt. Yêu cầu: 4 - 32 ký tự chữ hoa, số, gạch nối hoặc gạch dưới.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 uppercase">Mã vạch (Barcode / UPC / EAN)</label>
+              <input
+                type="text"
+                placeholder="VD: 883419001199"
+                value={skuBarcode}
+                onChange={(e) => setSkuBarcode(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Giá niêm yết cơ sở (Base Price VND)</label>
+            <input
+              type="number"
+              value={skuPrice}
+              onChange={(e) => setSkuPrice(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Master Attributes Mapping */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-300 uppercase">
+              Thuộc tính biến thể (Theo Master Attributes)
+            </label>
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+              {masterAttributes.map((attr) => (
+                <div key={attr.id} className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">{attr.name}</label>
+                  <select
+                    value={skuAttributes[attr.code.toLowerCase()] || ''}
+                    onChange={(e) =>
+                      setSkuAttributes((prev) => ({
+                        ...prev,
+                        [attr.code.toLowerCase()]: e.target.value,
+                      }))
+                    }
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">-- Không chọn --</option>
+                    {attr.values.map((val) => (
+                      <option key={val} value={val}>
+                        {val}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Media Dropzone & Management (STT 06) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Thư viện hình ảnh SKU (Media Gallery)</span>
+              </label>
+              <span className="text-[10px] text-slate-500 font-mono">{skuMedia.length} hình ảnh</span>
+            </div>
+
+            <label className="border-2 border-dashed border-slate-700 hover:border-indigo-500/60 rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer transition bg-slate-950/60 hover:bg-slate-900/40">
+              <UploadCloud className="h-6 w-6 text-indigo-400" />
+              <div className="text-center">
+                <p className="text-xs font-semibold text-white">Nhấp để chọn hoặc kéo thả ảnh vào đây</p>
+                <p className="text-[10px] text-slate-500">Hỗ trợ PNG, JPG, WEBP. Ảnh đầu tiên tự động thành ảnh đại diện.</p>
+              </div>
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleUploadMedia}
+                className="hidden"
+              />
+            </label>
+
+            {skuMedia.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5 pt-2">
+                {skuMedia.map((media) => (
+                  <div
+                    key={media.id}
+                    className={`relative group rounded-lg overflow-hidden border p-1 bg-slate-950 flex flex-col justify-between ${
+                      media.isPrimary ? 'border-amber-500/60 ring-1 ring-amber-500/30' : 'border-slate-800'
+                    }`}
+                  >
+                    <img
+                      src={media.url}
+                      alt="SKU Preview"
+                      className="w-full h-20 object-cover rounded"
+                    />
+                    <div className="mt-1 flex items-center justify-between text-[10px]">
+                      {media.isPrimary ? (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-0.5">
+                          <Star className="h-2.5 w-2.5 fill-amber-400" /> Chính
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPrimaryMedia(media.id)}
+                          className="text-slate-400 hover:text-amber-300 transition text-[10px]"
+                        >
+                          Đặt chính
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveMedia(media.id)}
+                        className="text-rose-400 hover:text-rose-300 p-0.5"
+                        title="Xóa ảnh"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
     </div>

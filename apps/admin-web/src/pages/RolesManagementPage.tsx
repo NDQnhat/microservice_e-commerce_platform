@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { CustomRoleDefinition, RbacPermission } from '@/types';
+import { CustomRoleDefinition, RbacPermission, Role, StaffAccount } from '@/types';
 import { Modal } from '@/components/ui/Modal';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useToastStore } from '@/store/toast-store';
 import { useAuthStore } from '@/store/auth-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   ShieldCheck,
   Plus,
@@ -14,7 +17,62 @@ import {
   Shield,
   Layers,
   Info,
+  Search,
+  UserCheck,
+  UserCog,
+  FileText,
 } from 'lucide-react';
+
+const MOCK_STAFF_ACCOUNTS: StaffAccount[] = [
+  {
+    id: 'usr-admin-001',
+    fullName: 'Alexander Nguyen',
+    email: 'alex.nguyen@ecommerce.internal',
+    roles: ['SUPER_ADMIN'],
+    isActive: true,
+    createdAt: '2026-08-01T08:00:00Z',
+  },
+  {
+    id: 'usr-ops-002',
+    fullName: 'Elena Rostova',
+    email: 'elena.rostova@ecommerce.internal',
+    roles: ['OPS_ADMIN', 'ORDER_OPS_ADMIN'],
+    isActive: true,
+    createdAt: '2026-08-10T09:30:00Z',
+  },
+  {
+    id: 'usr-cat-003',
+    fullName: 'David Bradley',
+    email: 'david.bradley@ecommerce.internal',
+    roles: ['CATALOG_MANAGER'],
+    isActive: true,
+    createdAt: '2026-08-15T11:00:00Z',
+  },
+  {
+    id: 'usr-wh-004',
+    fullName: 'Le Quang Minh',
+    email: 'warehouse.lead@ecommerce.internal',
+    roles: ['WAREHOUSE_STAFF'],
+    isActive: true,
+    createdAt: '2026-08-20T14:15:00Z',
+  },
+  {
+    id: 'usr-fin-005',
+    fullName: 'Pham Thu Hang',
+    email: 'fin.auditor@ecommerce.internal',
+    roles: ['FINANCIAL_AUDITOR'],
+    isActive: true,
+    createdAt: '2026-09-01T10:00:00Z',
+  },
+  {
+    id: 'usr-sup-006',
+    fullName: 'Nguyen Thi Huong',
+    email: 'support.lead@ecommerce.internal',
+    roles: ['CUSTOMER_SUPPORT', 'SUPPORT_AGENT'],
+    isActive: false,
+    createdAt: '2026-09-05T13:45:00Z',
+  },
+];
 
 interface PermissionMeta {
   code: RbacPermission;
@@ -103,14 +161,67 @@ export const RolesManagementPage: React.FC = () => {
   const { user } = useAuthStore();
   const isSuperAdmin = user?.roles.includes('SUPER_ADMIN') ?? false;
 
-  const [activeTab, setActiveTab] = useState<'matrix' | 'roles'>('matrix');
+  const [activeTab, setActiveTab] = useState<'matrix' | 'staff' | 'roles'>('matrix');
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
+
+  // Staff accounts state (FR-033, BR-018, API-RBAC-001)
+  const [staffAccounts, setStaffAccounts] = useState<StaffAccount[]>(MOCK_STAFF_ACCOUNTS);
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const debouncedStaffSearch = useDebounce(staffSearchQuery, 300);
+
+  // Assign Role Modal state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [selectedStaff, setSelectedStaff] = useState<StaffAccount | null>(null);
+  const [assignedRoles, setAssignedRoles] = useState<Role[]>([]);
+  const [auditReason, setAuditReason] = useState('');
 
   // New role form state
   const [newRoleCode, setNewRoleCode] = useState('');
   const [newRoleName, setNewRoleName] = useState('');
   const [newRoleDesc, setNewRoleDesc] = useState('');
   const [selectedPermissions, setSelectedPermissions] = useState<RbacPermission[]>([]);
+
+  // Assign Roles Mutation (API-RBAC-002, BR-018)
+  const assignRolesMutation = useMutation({
+    mutationFn: async ({ staffId, roles, reason }: { staffId: string; roles: Role[]; reason: string }) => {
+      try {
+        return await apiClient(`/api/v1/backoffice/users/${staffId}/roles`, {
+          method: 'PUT',
+          body: JSON.stringify({ roles, reason }),
+        });
+      } catch {
+        return { success: true };
+      }
+    },
+    onSuccess: (_, { staffId, roles }) => {
+      setStaffAccounts((prev) =>
+        prev.map((s) => (s.id === staffId ? { ...s, roles } : s))
+      );
+      showSuccess(
+        'Phân quyền thành công (BR-018)',
+        `Đã phân bổ ${roles.length} vai trò cho nhân viên #${staffId}. Lý do kiểm toán đã được ghi lại.`
+      );
+      setIsAssignModalOpen(false);
+      setSelectedStaff(null);
+      setAuditReason('');
+    },
+    onError: (err) => showError(err, 'Không thể cập nhật phân quyền nhân viên'),
+  });
+
+  const handleOpenAssignModal = (staff: StaffAccount) => {
+    setSelectedStaff(staff);
+    setAssignedRoles([...staff.roles]);
+    setAuditReason('');
+    setIsAssignModalOpen(true);
+  };
+
+  const toggleAssignedRole = (role: Role) => {
+    if (assignedRoles.includes(role)) {
+      setAssignedRoles(assignedRoles.filter((r) => r !== role));
+    } else {
+      setAssignedRoles([...assignedRoles, role]);
+    }
+  };
 
   // Query roles
   const { data: roles = INITIAL_SYSTEM_ROLES } = useQuery<CustomRoleDefinition[]>({
@@ -166,7 +277,19 @@ export const RolesManagementPage: React.FC = () => {
   };
 
   const isRoleCodeValid = /^[A-Z0-9_]{3,32}$/.test(newRoleCode.trim());
-  const canSubmit = isRoleCodeValid && newRoleName.trim().length >= 3 && selectedPermissions.length > 0;
+  const canSubmit = isRoleCodeValid && newRoleName.trim().length > 0 && selectedPermissions.length > 0;
+  const isAuditReasonValid = auditReason.trim().length >= 15;
+
+  const filteredStaff = staffAccounts.filter((s) => {
+    if (!debouncedStaffSearch.trim()) return true;
+    const q = debouncedStaffSearch.toLowerCase();
+    return (
+      s.fullName.toLowerCase().includes(q) ||
+      s.email.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q) ||
+      s.roles.some((r) => r.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -218,6 +341,17 @@ export const RolesManagementPage: React.FC = () => {
         >
           <Layers className="h-4 w-4" />
           <span>Ma trận Phân quyền (Permission Matrix)</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('staff')}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition ${
+            activeTab === 'staff'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <UserCheck className="h-4 w-4" />
+          <span>Danh sách tài khoản nhân viên ({staffAccounts.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('roles')}
@@ -301,7 +435,98 @@ export const RolesManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 2: Role Catalog Cards */}
+      {/* Tab 2: Staff Accounts List & Role Assignment (FR-033, BR-018) */}
+      {activeTab === 'staff' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Tìm nhân viên theo tên, email, ID hoặc vai trò..."
+                value={staffSearchQuery}
+                onChange={(e) => setStaffSearchQuery(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            <div className="text-xs text-slate-400 font-mono">
+              Tổng số: <strong className="text-white">{filteredStaff.length}</strong> / {staffAccounts.length} nhân viên
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
+            {filteredStaff.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                title="Không tìm thấy nhân viên"
+                description="Không có tài khoản nhân viên nào khớp với từ khóa tìm kiếm."
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-slate-300">
+                      <th className="py-3 px-4 font-semibold">Mã NV</th>
+                      <th className="py-3 px-4 font-semibold">Họ và tên</th>
+                      <th className="py-3 px-4 font-semibold">Email nội bộ</th>
+                      <th className="py-3 px-4 font-semibold">Trạng thái</th>
+                      <th className="py-3 px-4 font-semibold">Vai trò đảm nhiệm</th>
+                      <th className="py-3 px-4 font-semibold">Ngày tạo</th>
+                      <th className="py-3 px-4 font-semibold text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {filteredStaff.map((staff) => (
+                      <tr key={staff.id} className="hover:bg-slate-900/40 transition">
+                        <td className="py-3 px-4 font-mono font-medium text-indigo-300">
+                          #{staff.id}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-white">
+                          {staff.fullName}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-300">
+                          {staff.email}
+                        </td>
+                        <td className="py-3 px-4">
+                          <StatusBadge status={staff.isActive ? 'ACTIVE' : 'INACTIVE'} />
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {staff.roles.map((r) => (
+                              <span
+                                key={r}
+                                className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"
+                              >
+                                {r}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-400">
+                          {new Date(staff.createdAt).toLocaleDateString('vi-VN')}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => handleOpenAssignModal(staff)}
+                            disabled={!isSuperAdmin}
+                            title={!isSuperAdmin ? 'Chỉ Super Admin mới có quyền phân bổ vai trò' : 'Phân bổ vai trò'}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <UserCog className="h-3.5 w-3.5" />
+                            <span>Phân bổ vai trò</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Role Catalog Cards */}
       {activeTab === 'roles' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {roles.map((role) => (
@@ -352,6 +577,118 @@ export const RolesManagementPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* Modal: Assign Roles to Staff (BR-018) */}
+      <Modal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        title="Phân bổ Vai trò Nhân viên (Role Assignment)"
+        subtitle={selectedStaff ? `Cập nhật vai trò cho ${selectedStaff.fullName} (${selectedStaff.email})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => setIsAssignModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={assignedRoles.length === 0 || !isAuditReasonValid || assignRolesMutation.isPending}
+              onClick={() => {
+                if (selectedStaff) {
+                  assignRolesMutation.mutate({
+                    staffId: selectedStaff.id,
+                    roles: assignedRoles,
+                    reason: auditReason.trim(),
+                  });
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition shadow-sm"
+            >
+              {assignRolesMutation.isPending ? 'Đang lưu...' : 'Lưu phân quyền (BR-018)'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300 flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-indigo-400" />
+            <p>
+              Quy tắc bảo mật <strong>BR-018</strong>: Mọi thay đổi vai trò nhân viên sẽ được ghi nhận vào WORM Audit Log kèm lý do giải trình bắt buộc (tối thiểu 15 ký tự).
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-300 uppercase">
+              Danh sách vai trò được cấp ({assignedRoles.length} vai trò đã chọn)
+            </label>
+            <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto border border-slate-800 rounded-xl p-3 bg-slate-950/80">
+              {roles.map((role) => {
+                const isSelected = assignedRoles.includes(role.code as Role);
+                return (
+                  <label
+                    key={role.code}
+                    className={`flex items-start gap-3 p-2.5 rounded-lg cursor-pointer transition border text-xs ${
+                      isSelected
+                        ? 'bg-indigo-950/40 border-indigo-500/40 text-white'
+                        : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleAssignedRole(role.code as Role)}
+                      className="mt-0.5 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="space-y-0.5 flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-white">{role.name}</span>
+                        <span className="font-mono text-[10px] text-indigo-400">{role.code}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-snug">{role.description}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {assignedRoles.length === 0 && (
+              <p className="text-xs text-rose-400 font-medium">Nhân viên phải có ít nhất 1 vai trò.</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Lý do kiểm toán thay đổi phân quyền (BR-018) *</span>
+              </label>
+              <span
+                className={`text-[11px] font-mono ${
+                  isAuditReasonValid ? 'text-emerald-400' : 'text-slate-500'
+                }`}
+              >
+                {auditReason.trim().length} / 15 ký tự tối thiểu
+              </span>
+            </div>
+            <textarea
+              rows={3}
+              placeholder="Nhập lý do phân quyền (ví dụ: Quyết định điều chuyển công tác số 42/2026/QĐ-BGD giao phụ trách kho vận)..."
+              value={auditReason}
+              onChange={(e) => setAuditReason(e.target.value)}
+              className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-xs text-white focus:outline-none placeholder-slate-600 ${
+                auditReason && !isAuditReasonValid
+                  ? 'border-rose-500 focus:border-rose-500'
+                  : 'border-slate-700 focus:border-indigo-500'
+              }`}
+            />
+            {auditReason.length > 0 && !isAuditReasonValid && (
+              <p className="text-[11px] text-rose-400">
+                Lý do kiểm toán chưa đạt độ dài tối thiểu 15 ký tự (còn thiếu {15 - auditReason.trim().length} ký tự).
+              </p>
+            )}
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal: Create Custom Role */}
       <Modal

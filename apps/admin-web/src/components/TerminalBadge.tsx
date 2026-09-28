@@ -8,6 +8,7 @@ export const TERMINAL_STATUSES = [
   'REFUNDED',
   'RESOLVED',
   'IGNORED',
+  'RETURNED',
 ] as const;
 
 export type TerminalStatus = typeof TERMINAL_STATUSES[number];
@@ -37,6 +38,7 @@ export const TerminalBadge: React.FC<TerminalBadgeProps> = ({
     switch (status.toUpperCase()) {
       case 'CANCELLED':
       case 'IGNORED':
+      case 'RETURNED':
         return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
       case 'DELIVERED':
       case 'COMPLETED':

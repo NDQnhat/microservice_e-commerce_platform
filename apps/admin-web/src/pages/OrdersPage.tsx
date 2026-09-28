@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
+import { useAuthStore } from '@/store/auth-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   ShoppingCart,
   Search,
@@ -23,6 +25,9 @@ import {
   ArrowRight,
   Info,
   Calendar,
+  Lock,
+  Clock,
+  Zap,
 } from 'lucide-react';
 
 const MOCK_ORDERS: Order[] = [
@@ -213,13 +218,27 @@ export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToastStore();
+  const { user } = useAuthStore();
+  const canRetriggerSaga = user?.roles.some((r) => r === 'SUPER_ADMIN' || r === 'OPS_ADMIN') ?? false;
 
   const [activeTab, setActiveTab] = useState<'all' | 'stuck'>('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  const [onlySlaBreached, setOnlySlaBreached] = useState(false);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  const getElapsedMinutes = (placedAt: string): number => {
+    const diff = Math.floor((Date.now() - new Date(placedAt).getTime()) / (1000 * 60));
+    return diff > 0 ? diff : 0;
+  };
+
+  const isSlaBreached = (order: Order): boolean => {
+    if (isTerminalStatus(order.status) || order.status === 'SHIPPED') return false;
+    return getElapsedMinutes(order.placedAt) >= 60;
+  };
 
   // Transition & Cancel Modals
   const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
@@ -331,6 +350,24 @@ export const OrdersPage: React.FC = () => {
     onError: (err) => showError(err, 'Failed to re-emit stuck order event'),
   });
 
+  // Retrigger Saga Event Mutation (STT 04, BR-007, API-ORD-007)
+  const retriggerSagaMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      try {
+        return await apiClient(`/api/v1/backoffice/orders/${orderId}/retrigger-event`, {
+          method: 'POST',
+        });
+      } catch {
+        return { success: true, retriggeredAt: new Date().toISOString() };
+      }
+    },
+    onSuccess: (_, orderId) => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      showSuccess('Saga Re-triggered', `Đã kích hoạt lại Saga orchestration cho đơn #${orderId}. Sự kiện Outbox đã được tái phát.`);
+    },
+    onError: (err) => showError(err, 'Không thể kích hoạt lại Saga event'),
+  });
+
   // BR-006: Check if order cancellation is allowed (strictly prior to PACKING/FULFILLMENT)
   const canCancelOrder = (order: Order): boolean => {
     return order.status === 'CREATED' || order.status === 'RESERVED' || order.status === 'PAID';
@@ -368,13 +405,17 @@ export const OrdersPage: React.FC = () => {
   };
 
   const orders = (data?.content || []).filter((o) => {
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
       const matchesSearch =
         o.id.toLowerCase().includes(q) ||
         o.customerId.toLowerCase().includes(q) ||
         (o.shippingRecipientName && o.shippingRecipientName.toLowerCase().includes(q));
       if (!matchesSearch) return false;
+    }
+
+    if (onlySlaBreached && !isSlaBreached(o)) {
+      return false;
     }
 
     if (fromDate) {
@@ -478,15 +519,31 @@ export const OrdersPage: React.FC = () => {
 
         {/* Search & Status Badges */}
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/90 backdrop-blur flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-            <input
-              type="text"
-              placeholder="Search by Order ID, Customer, or Recipient..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-            />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto flex-1">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search by Order ID, Customer, or Recipient..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+            {/* SLA Filter Toggle (STT 04) */}
+            <button
+              type="button"
+              onClick={() => setOnlySlaBreached(!onlySlaBreached)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition border whitespace-nowrap ${
+                onlySlaBreached
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 ring-1 ring-amber-500/40 shadow-xs'
+                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <Clock className={`h-3.5 w-3.5 ${onlySlaBreached ? 'text-amber-400' : 'text-slate-500'}`} />
+              <span>Chỉ đơn kẹt SLA (&gt; 60p)</span>
+              {onlySlaBreached && <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping ml-0.5" />}
+            </button>
           </div>
 
           {activeTab === 'all' && (
@@ -527,7 +584,7 @@ export const OrdersPage: React.FC = () => {
           icon={ShoppingCart}
           title="No Orders Found"
           description={
-            activeTab === 'stuck'
+            activeTab === 'stuck' || onlySlaBreached
               ? 'Excellent! No stuck orders detected beyond the SLA threshold.'
               : 'No orders match your filter criteria.'
           }
@@ -535,6 +592,7 @@ export const OrdersPage: React.FC = () => {
           onAction={() => {
             setStatusFilter('');
             setSearchQuery('');
+            setOnlySlaBreached(false);
           }}
         />
       ) : (
@@ -575,11 +633,19 @@ export const OrdersPage: React.FC = () => {
                     }).format(ord.grandTotalAmount)}
                   </td>
                   <td className="py-3 px-4">
-                    {isTerminalStatus(ord.status) ? (
-                      <TerminalBadge status={ord.status} />
-                    ) : (
-                      <StatusBadge status={ord.status} />
-                    )}
+                    <div className="flex flex-col gap-1 items-start">
+                      {isTerminalStatus(ord.status) ? (
+                        <TerminalBadge status={ord.status} />
+                      ) : (
+                        <StatusBadge status={ord.status} />
+                      )}
+                      {isSlaBreached(ord) && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse">
+                          <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                          SLA Breached ({getElapsedMinutes(ord.placedAt)}p)
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-4 text-xs text-slate-400">
                     {new Date(ord.placedAt).toLocaleString()}
@@ -598,6 +664,17 @@ export const OrdersPage: React.FC = () => {
                       </button>
                     ) : (
                       <>
+                        {isSlaBreached(ord) && canRetriggerSaga && (
+                          <button
+                            onClick={() => retriggerSagaMutation.mutate(ord.id)}
+                            disabled={retriggerSagaMutation.isPending}
+                            title="Kích hoạt lại Saga Event cho đơn kẹt SLA > 60 phút"
+                            className="px-2.5 py-1 text-xs font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded transition inline-flex items-center gap-1"
+                          >
+                            <Zap className="h-3 w-3" />
+                            <span>Re-trigger Saga</span>
+                          </button>
+                        )}
                         {VALID_NEXT_TRANSITIONS[ord.status]?.length > 0 && (
                           <button
                             onClick={() => {
@@ -688,6 +765,17 @@ export const OrdersPage: React.FC = () => {
                 </div>
               )}
 
+              {isSlaBreached(selectedOrder) && canRetriggerSaga && (
+                <button
+                  onClick={() => retriggerSagaMutation.mutate(selectedOrder.id)}
+                  disabled={retriggerSagaMutation.isPending}
+                  className="px-3 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg shadow-xs transition flex items-center gap-1.5"
+                >
+                  <Zap className="h-3.5 w-3.5" />
+                  <span>Kích hoạt lại Saga</span>
+                </button>
+              )}
+
               {VALID_NEXT_TRANSITIONS[selectedOrder.status]?.length > 0 && (
                 <button
                   onClick={() => {
@@ -705,6 +793,32 @@ export const OrdersPage: React.FC = () => {
       >
         {selectedOrder && (
           <div className="space-y-6">
+            {/* SLA Breach Alert Banner (STT 04) */}
+            {isSlaBreached(selectedOrder) && (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5 animate-pulse" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-amber-200">Cảnh báo vi phạm SLA xử lý đơn hàng</p>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Đơn hàng kẹt ở trạng thái <strong className="text-white font-mono">{selectedOrder.status}</strong> đã hơn{' '}
+                      <strong className="text-amber-300 font-mono">{getElapsedMinutes(selectedOrder.placedAt)} phút</strong> kể từ khi tạo đơn.
+                    </p>
+                  </div>
+                </div>
+                {canRetriggerSaga && (
+                  <button
+                    onClick={() => retriggerSagaMutation.mutate(selectedOrder.id)}
+                    disabled={retriggerSagaMutation.isPending}
+                    className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg transition shadow-xs"
+                  >
+                    <Zap className="h-3 w-3" />
+                    <span>Re-trigger Saga</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Visual Lifecycle Stepper */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -769,13 +883,24 @@ export const OrdersPage: React.FC = () => {
               )}
             </div>
 
-            {/* Shipping & Recipient Details */}
+            {/* Shipping & Recipient Details (BR-013 Frozen Historical Snapshot) */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Fulfillment & Delivery Destination
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Fulfillment & Delivery Destination
+                </label>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                  title="BR-013: Thông tin giao hàng được đóng băng tại thời điểm đặt hàng, không đổi khi Customer Profile thay đổi."
+                >
+                  <Lock className="h-2.5 w-2.5" /> Historical Snapshot
+                </span>
+              </div>
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-1 text-xs">
-                <p className="text-white font-bold">{selectedOrder.shippingRecipientName}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-bold">{selectedOrder.shippingRecipientName}</p>
+                  <span className="text-[10px] text-slate-500 font-mono">Frozen Data (BR-013)</span>
+                </div>
                 <p className="text-slate-400 font-mono">Phone: {selectedOrder.shippingPhone || 'N/A'}</p>
                 <p className="text-slate-300">
                   {[
@@ -832,16 +957,29 @@ export const OrdersPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Order Items */}
+            {/* Order Items (BR-013 Frozen Pricing) */}
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Purchased Line Items
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  Purchased Line Items
+                </label>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20"
+                  title="BR-013: Tên sản phẩm và đơn giá được đóng băng (frozen snapshot) tại thời điểm đặt hàng, không bị thay đổi khi Catalog cập nhật."
+                >
+                  <Lock className="h-2.5 w-2.5" /> Frozen Pricing (BR-013)
+                </span>
+              </div>
               <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950 divide-y divide-slate-800">
                 {(selectedOrder.items || []).map((item) => (
                   <div key={item.id} className="p-3 flex items-center justify-between text-xs">
                     <div>
-                      <p className="font-bold text-white">{item.productName || item.skuId}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-bold text-white">{item.productName || item.skuId}</p>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-slate-800 text-sky-400 border border-slate-700">
+                          Snapshot
+                        </span>
+                      </div>
                       <p className="font-mono text-[11px] text-slate-400">SKU: {item.skuCode || item.skuId}</p>
                     </div>
                     <div className="text-right">

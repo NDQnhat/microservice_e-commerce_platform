@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   Boxes,
   Search,
@@ -107,6 +108,7 @@ export const InventoryPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'stock' | 'ledger'>('stock');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [selectedSku, setSelectedSku] = useState<SkuInventoryDisplay | null>(null);
 
   // Adjustment Modal (FR-030, BR-004, BR-015)
@@ -162,21 +164,27 @@ export const InventoryPage: React.FC = () => {
     enabled: !!selectedSku,
   });
 
-  // Negative Stock Guardrail Validation (BR-004, BR-015)
+  // Inventory Invariant Guardrail Validation (BR-003, BR-009, BR-017: available = physical - reserved >= 0)
   const currentOnHand = selectedSku?.totalQuantity ?? 0;
   const currentReserved = selectedSku?.reservedQuantity ?? 0;
   const currentAvailable = selectedSku?.availableQuantity ?? 0;
 
+  const signedDelta = adjustmentType === 'INCREASE' ? adjustmentAmount : -adjustmentAmount;
+  const newPhysical = currentOnHand + signedDelta;
+  const newAvailable = currentAvailable + signedDelta;
+
+  const isInvariantBreached = newAvailable < 0 || newPhysical < currentReserved;
+
   let negativeStockError: string | null = null;
-  if (adjustmentType === 'DECREASE') {
-    if (adjustmentAmount > currentOnHand) {
-      negativeStockError = `Số lượng giảm vượt quá số lượng tồn kho thực tế hiện có (${currentOnHand})`;
-    } else if (adjustmentAmount > currentAvailable) {
-      negativeStockError = `Số lượng giảm (${adjustmentAmount}) làm tồn khả dụng âm (hiện có: ${currentAvailable}, đang giữ chỗ: ${currentReserved})`;
-    }
+  if (isInvariantBreached) {
+    negativeStockError = `Vi phạm bất biến BR-009: Tồn vật lý mới không được nhỏ hơn số lượng đang giữ chỗ (Reserved: ${currentReserved})!`;
   }
 
-  const isAdjustmentValid = !negativeStockError && adjustmentAmount > 0 && adjustmentNote.trim().length >= 8;
+  const isAdjustmentValid =
+    !isInvariantBreached &&
+    newAvailable >= 0 &&
+    Math.abs(signedDelta) > 0 &&
+    adjustmentNote.trim().length >= 10;
 
   // Adjustment Mutation (FR-030, BR-015)
   const adjustMutation = useMutation({
@@ -251,8 +259,8 @@ export const InventoryPage: React.FC = () => {
   };
 
   const filteredItems = inventories.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedSearch.trim()) return true;
+    const q = debouncedSearch.toLowerCase();
     return (
       item.skuCode.toLowerCase().includes(q) ||
       item.productName.toLowerCase().includes(q) ||
@@ -698,15 +706,16 @@ export const InventoryPage: React.FC = () => {
         }
       >
         <div className="space-y-4">
-          {/* Target SKU Stock Summary */}
-          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+          {/* Target SKU Stock Summary & Live Preview (BR-003, BR-009, BR-017) */}
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-3 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-slate-400">Target SKU:</span>
               <span className="font-mono font-bold text-indigo-400">{selectedSku?.skuCode}</span>
             </div>
+            
             <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/60 text-center">
               <div className="p-2 rounded bg-slate-900/50">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn thực tế</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn thực tế hiện tại</p>
                 <p className="text-sm font-mono font-bold text-white mt-0.5">{currentOnHand}</p>
               </div>
               <div className="p-2 rounded bg-slate-900/50">
@@ -714,20 +723,45 @@ export const InventoryPage: React.FC = () => {
                 <p className="text-sm font-mono font-bold text-amber-400 mt-0.5">{currentReserved}</p>
               </div>
               <div className="p-2 rounded bg-slate-900/50">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn khả dụng</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn khả dụng hiện tại</p>
                 <p className="text-sm font-mono font-bold text-emerald-400 mt-0.5">{currentAvailable}</p>
+              </div>
+            </div>
+
+            {/* Live Preview Box */}
+            <div className="p-2.5 rounded-lg bg-indigo-950/30 border border-indigo-500/20 text-xs space-y-1.5">
+              <div className="flex items-center justify-between font-semibold text-indigo-300 text-[11px] uppercase tracking-wider">
+                <span>Dự tính sau điều chỉnh (Live Preview)</span>
+                <span className="font-mono">Delta: {signedDelta > 0 ? `+${signedDelta}` : signedDelta}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                <div className="flex justify-between items-center bg-slate-950/70 px-2 py-1 rounded border border-slate-800">
+                  <span className="text-slate-400">Tồn vật lý mới:</span>
+                  <span className={`font-bold ${newPhysical < currentReserved ? 'text-rose-400' : 'text-white'}`}>
+                    {currentOnHand} → {newPhysical}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center bg-slate-950/70 px-2 py-1 rounded border border-slate-800">
+                  <span className="text-slate-400">Tồn khả dụng mới:</span>
+                  <span className={`font-bold ${newAvailable < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {currentAvailable} → {newAvailable}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Negative Stock Violation Error Banner */}
+          {/* Negative Stock Violation Error Banner (BR-009 Guard) */}
           {negativeStockError && (
-            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
-              <div>
-                <p className="font-bold">Lỗi vi phạm ranh giới âm tồn kho (BR-004, BR-015)</p>
-                <p className="mt-0.5 leading-relaxed">{negativeStockError}</p>
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-rose-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>Vi phạm bất biến BR-009: Tồn vật lý mới không được nhỏ hơn số lượng đang giữ chỗ (Reserved: {currentReserved})!</span>
               </div>
+              <p className="text-[11px] text-rose-400/90 leading-relaxed">
+                Hệ thống yêu cầu available_quantity = physical_quantity - reserved_quantity &ge; 0.
+                Dự tính sau điều chỉnh: Tồn khả dụng mới = {newAvailable} &lt; 0. Thao tác bị khóa.
+              </p>
             </div>
           )}
 
@@ -802,14 +836,14 @@ export const InventoryPage: React.FC = () => {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 uppercase">
-                Ghi chú kiểm toán kho (Audit Note - Tối thiểu 8 ký tự)
+                Ghi chú kiểm toán kho (Audit Note - Tối thiểu 10 ký tự)
               </label>
               <span
                 className={`text-[11px] font-mono ${
-                  adjustmentNote.trim().length >= 8 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
+                  adjustmentNote.trim().length >= 10 ? 'text-emerald-400 font-semibold' : 'text-rose-400'
                 }`}
               >
-                {adjustmentNote.trim().length} / 8 ký tự tối thiểu
+                {adjustmentNote.trim().length} / 10 ký tự tối thiểu
               </span>
             </div>
             <textarea

@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { SlideOverDrawer } from '@/components/ui/SlideOverDrawer';
 import { Modal } from '@/components/ui/Modal';
 import { useToastStore } from '@/store/toast-store';
+import { useDebounce } from '@/hooks/useDebounce';
 import {
   Truck,
   Search,
@@ -18,7 +19,20 @@ import {
   RefreshCw,
   Eye,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
+
+export const SHIPMENT_STATE_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
+  CREATED: ['PACKING'],
+  PACKING: ['READY_FOR_PICKUP', 'HANDED_OVER'],
+  READY_FOR_PICKUP: ['HANDED_OVER'],
+  HANDED_OVER: ['IN_TRANSIT', 'SHIPPED'],
+  IN_TRANSIT: ['DELIVERED', 'DELIVERY_FAILED'],
+  SHIPPED: ['DELIVERED', 'DELIVERY_FAILED'],
+  DELIVERY_FAILED: ['RETURNED', 'IN_TRANSIT'],
+  DELIVERED: [], // Terminal
+  RETURNED: [],  // Terminal
+};
 
 const MOCK_SHIPMENTS: Shipment[] = [
   {
@@ -57,6 +71,7 @@ export const ShipmentsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'stuck'>('all');
   const [statusFilter, setStatusFilter] = useState<ShipmentStatus | ''>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
 
   // Update Shipment Modal (API-FUL-001, BR-011)
@@ -64,6 +79,21 @@ export const ShipmentsPage: React.FC = () => {
   const [carrierCode, setCarrierCode] = useState<CarrierCode>('GHN');
   const [trackingNumber, setTrackingNumber] = useState('');
   const [targetStatus, setTargetStatus] = useState<ShipmentStatus>('SHIPPED');
+
+  const openUpdateModal = (shp: Shipment) => {
+    if (isTerminalStatus(shp.status)) return;
+    const allowed = SHIPMENT_STATE_TRANSITIONS[shp.status] || [];
+    if (allowed.length === 0) return;
+
+    setSelectedShipment(shp);
+    const currentCarrier = (['GHN', 'GHTK', 'VIETTELPOST', 'VNPOST'] as const).find(
+      (c) => c === shp.carrierName
+    ) || 'GHN';
+    setCarrierCode(currentCarrier);
+    setTrackingNumber(shp.trackingCode || '');
+    setTargetStatus(allowed[0]);
+    setIsUpdateModalOpen(true);
+  };
 
   // Initiate Shipment Modal
   const [isInitiateModalOpen, setIsInitiateModalOpen] = useState(false);
@@ -163,14 +193,18 @@ export const ShipmentsPage: React.FC = () => {
   });
 
   const shipments = (data?.content || []).filter((s) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    if (!debouncedSearch.trim()) return true;
+    const q = debouncedSearch.toLowerCase();
     return (
       s.id.toLowerCase().includes(q) ||
       s.orderId.toLowerCase().includes(q) ||
       (s.trackingCode && s.trackingCode.toLowerCase().includes(q))
     );
   });
+
+  const validNextTransitions = selectedShipment
+    ? SHIPMENT_STATE_TRANSITIONS[selectedShipment.status] || []
+    : [];
 
   return (
     <div className="space-y-6">
@@ -240,7 +274,7 @@ export const ShipmentsPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            {(['', 'PACKING', 'HANDED_OVER', 'SHIPPED', 'DELIVERED', 'DELIVERY_FAILED', 'RETURNED'] as const).map((st) => (
+            {(['', 'CREATED', 'PACKING', 'READY_FOR_PICKUP', 'HANDED_OVER', 'IN_TRANSIT', 'SHIPPED', 'DELIVERED', 'DELIVERY_FAILED', 'RETURNED'] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
@@ -307,22 +341,18 @@ export const ShipmentsPage: React.FC = () => {
                       className="py-3 px-4 text-right space-x-2"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {!terminal && (
+                      {!terminal ? (
                         <button
-                          onClick={() => {
-                            setSelectedShipment(shp);
-                            const currentCarrier = (['GHN', 'GHTK', 'VIETTELPOST', 'VNPOST'] as const).find(
-                              (c) => c === shp.carrierName
-                            ) || 'GHN';
-                            setCarrierCode(currentCarrier);
-                            setTrackingNumber(shp.trackingCode || '');
-                            setTargetStatus(shp.status === 'PACKING' ? 'HANDED_OVER' : 'SHIPPED');
-                            setIsUpdateModalOpen(true);
-                          }}
+                          onClick={() => openUpdateModal(shp)}
                           className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition shadow-xs"
                         >
                           Cập nhật vận đơn
                         </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-slate-500 bg-slate-900 border border-slate-800">
+                          <Lock className="h-3 w-3 text-slate-500" />
+                          <span>TerminalState</span>
+                        </span>
                       )}
                       <button
                         onClick={() => setSelectedShipment(shp)}
@@ -359,19 +389,16 @@ export const ShipmentsPage: React.FC = () => {
         footerActions={
           selectedShipment && !isTerminalStatus(selectedShipment.status) ? (
             <button
-              onClick={() => {
-                const currentCarrier = (['GHN', 'GHTK', 'VIETTELPOST', 'VNPOST'] as const).find(
-                  (c) => c === selectedShipment.carrierName
-                ) || 'GHN';
-                setCarrierCode(currentCarrier);
-                setTrackingNumber(selectedShipment.trackingCode || '');
-                setTargetStatus(selectedShipment.status === 'PACKING' ? 'HANDED_OVER' : 'SHIPPED');
-                setIsUpdateModalOpen(true);
-              }}
+              onClick={() => openUpdateModal(selectedShipment)}
               className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-sm transition"
             >
               Cập nhật thông tin vận chuyển
             </button>
+          ) : selectedShipment ? (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 font-mono">
+              <Lock className="h-3.5 w-3.5 text-slate-500" />
+              <span>Vận đơn ở trạng thái kết thúc (Terminal State) - Khóa cập nhật (BR-010)</span>
+            </div>
           ) : null
         }
       >
@@ -444,11 +471,13 @@ export const ShipmentsPage: React.FC = () => {
             <button
               disabled={
                 updateShipmentMutation.isPending ||
+                validNextTransitions.length === 0 ||
+                !validNextTransitions.includes(targetStatus) ||
                 ((targetStatus === 'HANDED_OVER' || targetStatus === 'SHIPPED') &&
                   (!trackingNumber.trim() || !/^[a-zA-Z0-9-]{8,32}$/.test(trackingNumber.trim())))
               }
               onClick={() => {
-                if (selectedShipment) {
+                if (selectedShipment && validNextTransitions.includes(targetStatus)) {
                   updateShipmentMutation.mutate({
                     orderId: selectedShipment.orderId,
                     carrier_code: carrierCode,
@@ -466,18 +495,34 @@ export const ShipmentsPage: React.FC = () => {
       >
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-300 uppercase">Trạng thái chuyển tiếp (Target Status)</label>
-            <select
-              value={targetStatus}
-              onChange={(e) => setTargetStatus(e.target.value as ShipmentStatus)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-            >
-              <option value="HANDED_OVER">HANDED_OVER - Đã bàn giao cho đơn vị vận chuyển</option>
-              <option value="SHIPPED">SHIPPED - Đang vận chuyển tới khách hàng (In Transit)</option>
-              <option value="DELIVERED">DELIVERED - Giao hàng thành công (Terminal)</option>
-              <option value="DELIVERY_FAILED">DELIVERY_FAILED - Giao hàng không thành công</option>
-              <option value="RETURNED">RETURNED - Kiện hàng chuyển hoàn về kho</option>
-            </select>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-300 uppercase">
+                Trạng thái chuyển tiếp hợp lệ (Target Status - State Machine)
+              </label>
+              <span className="text-[11px] font-mono text-indigo-400">
+                Hiện tại: {selectedShipment?.status}
+              </span>
+            </div>
+            {validNextTransitions.length === 0 ? (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                <Lock className="h-4 w-4 shrink-0 text-rose-400" />
+                <span>
+                  Trạng thái hiện tại ({selectedShipment?.status}) là Terminal State, không còn bước chuyển tiếp hợp lệ theo ma trận đồ thị trạng thái SRS.
+                </span>
+              </div>
+            ) : (
+              <select
+                value={targetStatus}
+                onChange={(e) => setTargetStatus(e.target.value as ShipmentStatus)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+              >
+                {validNextTransitions.map((st) => (
+                  <option key={st} value={st}>
+                    {st} {st === 'DELIVERED' || st === 'RETURNED' ? ' - Trạng thái kết thúc (Terminal)' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="space-y-1.5">

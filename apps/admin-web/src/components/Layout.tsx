@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/auth-store';
+import { NetworkBanner } from '@/components/ui/NetworkBanner';
 import { ToastContainer } from '@/components/ui/ToastContainer';
 import { Role } from '@/types';
 import {
@@ -117,11 +118,13 @@ export const Layout: React.FC = () => {
   });
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 antialiased overflow-hidden font-sans">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100 antialiased overflow-hidden font-sans">
+      <NetworkBanner />
       <ToastContainer />
 
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-64 border-r border-slate-800 bg-slate-950 flex flex-col shrink-0">
         {/* Brand Header */}
         <div className="h-16 px-6 flex items-center gap-3 border-b border-slate-800 bg-slate-950">
           <div className="p-1.5 rounded-lg bg-indigo-600/10 text-indigo-400 border border-indigo-500/20">
@@ -239,5 +242,6 @@ export const Layout: React.FC = () => {
         </main>
       </div>
     </div>
-  );
+  </div>
+);
 };

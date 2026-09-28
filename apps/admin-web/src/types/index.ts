@@ -274,8 +274,11 @@ export interface PaymentTransaction {
 export type CarrierCode = 'VNPOST' | 'GHN' | 'GHTK' | 'VIETTELPOST';
 
 export type ShipmentStatus =
+  | 'CREATED'
   | 'PACKING'
+  | 'READY_FOR_PICKUP'
   | 'HANDED_OVER'
+  | 'IN_TRANSIT'
   | 'SHIPPED'
   | 'DELIVERED'
   | 'DELIVERY_FAILED'
@@ -385,3 +388,61 @@ export interface CustomRoleDefinition {
   isSystem: boolean;
   createdAt: string;
 }
+
+export interface StaffAccount {
+  id: string;
+  fullName: string;
+  email: string;
+  roles: Role[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+export type NotificationEventCode =
+  | 'ORDER_CONFIRMED'
+  | 'PAYMENT_SUCCESS'
+  | 'SHIPMENT_DISPATCHED'
+  | 'REFUND_PROCESSED';
+
+export type NotificationChannel = 'EMAIL' | 'SMS' | 'PUSH';
+
+export interface NotificationTemplate {
+  id: string;
+  templateCode: string;
+  eventCode: NotificationEventCode;
+  channel: NotificationChannel;
+  language: string;
+  title: string;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MasterAttribute {
+  id: string;
+  code: string;
+  name: string;
+  values: string[];
+}
+
+export interface SkuMedia {
+  id: string;
+  url: string;
+  isPrimary: boolean;
+  displayOrder: number;
+  fileName: string;
+}
+
+export interface ConfigVersionHistory {
+  id: string;
+  configKey: string;
+  version: number;
+  configValue: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  changedBy: string;
+  reason: string;
+  createdAt: string;
+}
+
