@@ -1,0 +1,215 @@
+'use client';
+
+import React, { Suspense, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { Product, Category, ProductFilterParams, PaginatedResult } from '@/types';
+import { ProductCard } from '@/components/product/ProductCard';
+import { FacetedFilters } from '@/components/product/FacetedFilters';
+import { ProductGridSkeleton } from '@/components/common/SkeletonLoader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { SlidersHorizontal, ArrowUpDown, X } from 'lucide-react';
+
+function ProductsContent() {
+  const searchParams = useSearchParams();
+
+  // Initialize filters from URL parameters
+  const [filters, setFilters] = useState<ProductFilterParams>({
+    categoryId: searchParams.get('categoryId') || undefined,
+    search: searchParams.get('search') || searchParams.get('q') || undefined,
+    sortBy: (searchParams.get('sortBy') as any) || undefined,
+    minPrice: searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined,
+    maxPrice: searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined,
+  });
+
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
+  // Sync state if URL search query changes
+  useEffect(() => {
+    setFilters((prev) => ({
+      ...prev,
+      categoryId: searchParams.get('categoryId') || undefined,
+      search: searchParams.get('search') || searchParams.get('q') || undefined,
+    }));
+  }, [searchParams]);
+
+  // Query categories
+  const { data: categories = [] } = useQuery<Category[]>({
+    queryKey: ['categories'],
+    queryFn: () => apiClient<Category[]>('/api/v1/categories'),
+  });
+
+  // Query products with active filters
+  const { data: productData, isLoading, refetch } = useQuery<PaginatedResult<Product>>({
+    queryKey: ['products', filters],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filters.search) params.set('search', filters.search);
+      if (filters.categoryId) params.set('categoryId', filters.categoryId);
+      if (filters.minPrice) params.set('minPrice', filters.minPrice.toString());
+      if (filters.maxPrice) params.set('maxPrice', filters.maxPrice.toString());
+      if (filters.sortBy) params.set('sortBy', filters.sortBy);
+      return apiClient<PaginatedResult<Product>>(`/api/v1/products?${params.toString()}`);
+    },
+  });
+
+  // Local client-side additional attribute filter for colors and sizes
+  let products = productData?.items || [];
+  if (filters.color) {
+    products = products.filter((p) =>
+      p.skus.some((s) => s.attributes?.Color?.includes(filters.color!))
+    );
+  }
+  if (filters.size) {
+    products = products.filter((p) =>
+      p.skus.some((s) => s.attributes?.Size === filters.size)
+    );
+  }
+  if (filters.inStockOnly) {
+    products = products.filter((p) =>
+      p.skus.some((s) => (s.inventory?.quantityAvailable ?? 0) > 0)
+    );
+  }
+
+  const handleResetFilters = () => {
+    setFilters({});
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Page Title & Breadcrumb header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-200 pb-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900">
+            {filters.search
+              ? `Kết quả tìm kiếm: "${filters.search}"`
+              : filters.categoryId
+              ? categories.find((c) => c.id === filters.categoryId)?.name || 'Danh mục sản phẩm'
+              : 'Tất cả sản phẩm'}
+          </h1>
+          <p className="text-xs sm:text-sm text-zinc-500 mt-1">
+            Hiển thị <strong>{products.length}</strong> sản phẩm chất lượng cao
+          </p>
+        </div>
+
+        {/* Sort & Mobile filter trigger */}
+        <div className="flex items-center gap-3 self-end sm:self-auto">
+          {/* Mobile Filter Trigger */}
+          <button
+            onClick={() => setIsMobileFilterOpen(true)}
+            className="lg:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 text-xs font-semibold text-zinc-800 bg-white hover:bg-zinc-50 transition"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Bộ lọc</span>
+          </button>
+
+          {/* Sort dropdown */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-zinc-500 hidden sm:inline">Sắp xếp:</label>
+            <div className="relative">
+              <select
+                value={filters.sortBy || ''}
+                onChange={(e) =>
+                  setFilters({ ...filters, sortBy: (e.target.value as any) || undefined })
+                }
+                className="appearance-none bg-white border border-zinc-200 rounded-xl px-3 py-2 pr-8 text-xs font-medium text-zinc-900 focus:outline-none focus:border-zinc-900 cursor-pointer shadow-xs"
+              >
+                <option value="">Mặc định (Nổi bật)</option>
+                <option value="price-asc">Giá: Thấp đến Cao</option>
+                <option value="price-desc">Giá: Cao đến Thấp</option>
+                <option value="newest">Mới nhất</option>
+                <option value="rating">Đánh giá cao nhất</option>
+              </select>
+              <ArrowUpDown className="w-3 h-3 text-zinc-400 absolute right-2.5 top-3 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Layout Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        {/* Desktop Sticky Sidebar Filter */}
+        <div className="hidden lg:block lg:col-span-1">
+          <div className="sticky top-28 bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs">
+            <FacetedFilters
+              categories={categories}
+              filters={filters}
+              onFilterChange={setFilters}
+              onReset={handleResetFilters}
+            />
+          </div>
+        </div>
+
+        {/* Product Grid Area */}
+        <div className="lg:col-span-3">
+          {isLoading ? (
+            <ProductGridSkeleton count={6} />
+          ) : products.length === 0 ? (
+            <div className="py-12">
+              <EmptyState
+                title="Không tìm thấy sản phẩm"
+                description="Không có sản phẩm nào khớp với tiêu chí tìm kiếm hoặc bộ lọc hiện tại của bạn."
+                actionText="Xóa tất cả bộ lọc"
+                onAction={handleResetFilters}
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+              {products.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Mobile Filters Slide-over Modal */}
+      {isMobileFilterOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
+            onClick={() => setIsMobileFilterOpen(false)}
+          />
+          <div className="relative ml-auto w-full max-w-xs bg-white h-full p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right">
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-200">
+              <h3 className="text-base font-bold text-zinc-900">Bộ lọc sản phẩm</h3>
+              <button
+                onClick={() => setIsMobileFilterOpen(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="pt-4">
+              <FacetedFilters
+                categories={categories}
+                filters={filters}
+                onFilterChange={(newF) => {
+                  setFilters(newF);
+                }}
+                onReset={handleResetFilters}
+              />
+            </div>
+            <div className="pt-6 border-t border-zinc-200 mt-6">
+              <button
+                onClick={() => setIsMobileFilterOpen(false)}
+                className="w-full py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold"
+              >
+                Xem kết quả ({products.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<ProductGridSkeleton count={8} />}>
+      <ProductsContent />
+    </Suspense>
+  );
+}
