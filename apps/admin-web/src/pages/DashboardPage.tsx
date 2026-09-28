@@ -40,6 +40,15 @@ export const DashboardPage: React.FC = () => {
           activeOrdersCount: 128,
           lowStockCount: 4,
           systemHealth: '99.98%',
+          orderStatusBreakdown: {
+            RESERVED: 14,
+            PAID: 38,
+            PACKING: 26,
+            SHIPPED: 45,
+            COMPLETED: 192,
+            CANCELLED: 9,
+            EXPIRED: 4,
+          },
         };
       }
     },
@@ -182,6 +191,105 @@ export const DashboardPage: React.FC = () => {
             Review Logs <ExternalLink className="h-3 w-3" />
           </Link>
         </div>
+      </div>
+
+      {/* Task 09: Order Status Breakdown (7 States: RESERVED, PAID, PACKING, SHIPPED, COMPLETED, CANCELLED, EXPIRED) */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/90 backdrop-blur p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div>
+            <h3 className="font-bold text-white text-base flex items-center gap-2">
+              <span>Phân bố trạng thái đơn hàng (Order Status Breakdown)</span>
+              <span className="text-xs font-mono font-normal text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                SRS Sec. 12 &amp; FR-032
+              </span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Tổng quan phân bổ 7 trạng thái vòng đời đơn hàng theo thời gian thực
+            </p>
+          </div>
+          <Link
+            to="/orders"
+            className="text-xs font-semibold px-2.5 py-1 rounded bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 transition flex items-center gap-1 w-fit"
+          >
+            <span>Quản lý đơn hàng</span>
+            <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
+
+        {(() => {
+          const breakdown = summary?.orderStatusBreakdown ?? {
+            RESERVED: 14,
+            PAID: 38,
+            PACKING: 26,
+            SHIPPED: 45,
+            COMPLETED: 192,
+            CANCELLED: 9,
+            EXPIRED: 4,
+          };
+          const orderStatusConfig = [
+            { key: 'RESERVED', label: 'Giữ chỗ (RESERVED)', color: 'bg-amber-500', textColor: 'text-amber-400', borderColor: 'border-amber-500/30', bgLight: 'bg-amber-500/10' },
+            { key: 'PAID', label: 'Đã TT (PAID)', color: 'bg-sky-500', textColor: 'text-sky-400', borderColor: 'border-sky-500/30', bgLight: 'bg-sky-500/10' },
+            { key: 'PACKING', label: 'Đóng gói (PACKING)', color: 'bg-indigo-500', textColor: 'text-indigo-400', borderColor: 'border-indigo-500/30', bgLight: 'bg-indigo-500/10' },
+            { key: 'SHIPPED', label: 'Vận chuyển (SHIPPED)', color: 'bg-purple-500', textColor: 'text-purple-400', borderColor: 'border-purple-500/30', bgLight: 'bg-purple-500/10' },
+            { key: 'COMPLETED', label: 'Hoàn tất (COMPLETED)', color: 'bg-emerald-500', textColor: 'text-emerald-400', borderColor: 'border-emerald-500/30', bgLight: 'bg-emerald-500/10' },
+            { key: 'CANCELLED', label: 'Đã hủy (CANCELLED)', color: 'bg-rose-500', textColor: 'text-rose-400', borderColor: 'border-rose-500/30', bgLight: 'bg-rose-500/10' },
+            { key: 'EXPIRED', label: 'Hết hạn (EXPIRED)', color: 'bg-slate-500', textColor: 'text-slate-400', borderColor: 'border-slate-500/30', bgLight: 'bg-slate-500/10' },
+          ] as const;
+
+          const totalBreakdownOrders = Object.values(breakdown).reduce((acc, c) => acc + c, 0) || 1;
+
+          return (
+            <div className="space-y-4">
+              {/* Stacked Distribution Bar */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+                  <span>Tỷ lệ phân bố lũy kế:</span>
+                  <span className="text-white font-bold">{totalBreakdownOrders} đơn hàng ghi nhận</span>
+                </div>
+                <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden flex shadow-inner">
+                  {orderStatusConfig.map((cfg) => {
+                    const count = breakdown[cfg.key] ?? 0;
+                    const pct = (count / totalBreakdownOrders) * 100;
+                    if (pct <= 0) return null;
+                    return (
+                      <div
+                        key={cfg.key}
+                        className={`${cfg.color} h-full transition-all duration-300 relative group`}
+                        style={{ width: `${pct}%` }}
+                        title={`${cfg.label}: ${count} đơn (${pct.toFixed(1)}%)`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 7 Mini-Cards Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 pt-2">
+                {orderStatusConfig.map((cfg) => {
+                  const count = breakdown[cfg.key] ?? 0;
+                  const pct = Math.round((count / totalBreakdownOrders) * 100);
+                  return (
+                    <div
+                      key={cfg.key}
+                      className={`p-3 rounded-xl border ${cfg.borderColor} ${cfg.bgLight} backdrop-blur flex flex-col justify-between`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className={`h-2 w-2 rounded-full ${cfg.color} shrink-0`} />
+                        <span className="text-[11px] font-semibold text-slate-300 truncate" title={cfg.label}>
+                          {cfg.key}
+                        </span>
+                      </div>
+                      <div>
+                        <p className={`text-lg font-bold font-mono ${cfg.textColor}`}>{count}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{pct}% tổng đơn</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Middle Section: Exception Distribution & Architecture Topology */}

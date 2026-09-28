@@ -143,13 +143,11 @@ export const ShipmentsPage: React.FC = () => {
         throw new Error('Tracking number is mandatory and must match ^[a-zA-Z0-9-]{8,32}$ when transitioning to HANDED_OVER or SHIPPED');
       }
 
-      return apiClient<Shipment>(`/api/v1/backoffice/fulfillment/orders/${orderId}`, {
+      return apiClient<Shipment>(`/api/v1/backoffice/orders/${orderId}/shipment`, {
         method: 'POST',
         body: JSON.stringify({
-          carrier_code,
           carrier_name: carrier_code,
           tracking_code: cleanTracking,
-          tracking_number: cleanTracking,
           target_status,
         }),
       });

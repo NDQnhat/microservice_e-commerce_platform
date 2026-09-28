@@ -1,4 +1,6 @@
 import { ApiError } from '@/types';
+import { useAuthStore } from '@/store/auth-store';
+import { useToastStore } from '@/store/toast-store';
 
 function generateCorrelationId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -37,6 +39,20 @@ export async function apiClient<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      useAuthStore.getState().logout();
+      useToastStore.getState().showWarning(
+        'Phiên làm việc đã hết hạn',
+        'Phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.'
+      );
+      if (typeof window !== 'undefined' && window.location && window.location.pathname !== '/login') {
+        try {
+          window.location.href = '/login';
+        } catch {
+          // Fallback for jsdom / test environment
+        }
+      }
+    }
     let errorProblem: ApiError;
     try {
       errorProblem = await response.json();

@@ -180,6 +180,18 @@ export const SupportPage: React.FC = () => {
   const [cancelCustomerId, setCancelCustomerId] = useState('');
   const [cancelReason, setCancelReason] = useState('Customer requested order cancellation prior to packaging');
 
+  // Task 10: Notification Search & Resend Modal State (FR-041, BR-016)
+  const [notifSearchQuery, setNotifSearchQuery] = useState('');
+  const debouncedNotifSearch = useDebounce(notifSearchQuery, 300);
+  const [isResendModalOpen, setIsResendModalOpen] = useState(false);
+  const [resendNotificationType, setResendNotificationType] = useState<
+    'ORDER_CONFIRMATION' | 'SHIPPING_TRACKING' | 'ACCOUNT_OTP'
+  >('ORDER_CONFIRMATION');
+  const [resendRecipient, setResendRecipient] = useState('');
+  const [resendOrderId, setResendOrderId] = useState('');
+  const [resendChannel, setResendChannel] = useState<'EMAIL' | 'SMS'>('EMAIL');
+  const [resendReason, setResendReason] = useState('');
+
   const handleOpenTemplateModal = (tmpl?: NotificationTemplate) => {
     if (tmpl) {
       setEditingTemplate(tmpl);
@@ -338,6 +350,58 @@ export const SupportPage: React.FC = () => {
       }
     },
     onError: (err) => showError(err, 'Support action failed per security/guardrail constraints'),
+  });
+
+  // Dedicated Resend Notification Mutation (FR-041, BR-016)
+  const resendNotificationMutation = useMutation({
+    mutationFn: async ({
+      notification_type,
+      recipient,
+      order_id,
+      channel,
+      reason,
+    }: {
+      notification_type: 'ORDER_CONFIRMATION' | 'SHIPPING_TRACKING' | 'ACCOUNT_OTP';
+      recipient: string;
+      order_id?: string;
+      channel: 'EMAIL' | 'SMS';
+      reason: string;
+    }) => {
+      const payload = {
+        notification_type,
+        recipient,
+        order_id: order_id || undefined,
+        channel,
+        reason,
+      };
+
+      try {
+        return await apiClient('/api/v1/backoffice/support/resend-notification', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      } catch {
+        // Fallback to unified support facade
+        return await apiClient(`/api/v1/backoffice/customers/${encodeURIComponent(recipient)}/support-actions`, {
+          method: 'POST',
+          body: JSON.stringify({
+            action_type: 'RESEND_NOTIFICATION',
+            reason,
+            target_id: order_id || recipient,
+          }),
+        });
+      }
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['failed-notifications'] });
+      showSuccess(
+        'Gửi lại thông báo thành công',
+        `Thông báo ${vars.notification_type} đã được xếp hàng gửi tới ${vars.recipient}.`
+      );
+      setIsResendModalOpen(false);
+      setResendReason('');
+    },
+    onError: (err) => showError(err, 'Gửi lại thông báo thất bại'),
   });
 
   return (
@@ -516,78 +580,132 @@ export const SupportPage: React.FC = () => {
       {/* Tab 2: Failed Notifications Resend */}
       {activeTab === 'notifications' && (
         <div className="space-y-4">
-          {isLoadingNotifs ? (
-            <SkeletonTable rows={3} cols={5} />
-          ) : (notifData?.content || []).length === 0 ? (
-            <EmptyState
-              icon={Mail}
-              title="No Failed Notifications"
-              description="All outgoing email and SMS notifications have successfully delivered."
-            />
-          ) : (
-            <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-slate-900/95 backdrop-blur z-10 border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  <tr>
-                    <th className="py-3 px-4">Log ID</th>
-                    <th className="py-3 px-4">Channel & Template</th>
-                    <th className="py-3 px-4">Recipient</th>
-                    <th className="py-3 px-4">Status & Retries</th>
-                    <th className="py-3 px-4 text-right">Resend Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/80">
-                  {(notifData?.content || []).map((log) => (
-                    <tr key={log.id} className="hover:bg-slate-900/50 transition">
-                      <td className="py-3 px-4">
-                        <span className="font-mono text-xs font-bold text-indigo-400">{log.id}</span>
-                        {log.orderId && (
-                          <p className="font-mono text-[11px] text-slate-500">Order: {log.orderId}</p>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-bold text-white text-xs">{log.channel}</span>
-                        <p className="font-mono text-[11px] text-slate-400">{log.templateCode}</p>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-300">
-                        <MaskedText
-                          value={log.recipient}
-                          type={log.channel === 'SMS' ? 'phone' : 'email'}
-                          canReveal={isSuperAdmin}
-                          onRevealAudit={() =>
-                            showInfo('PII Access Audited', `Truy cập giải mã người nhận (${log.id}) đã được lưu vết WORM Audit.`)
-                          }
-                        />
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={log.status} variant="rose" />
-                          <span className="text-[11px] font-mono text-slate-500">({log.retryCount} tries)</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() =>
-                            supportActionMutation.mutate({
-                              customerId: log.recipient || 'cust-system',
-                              action_type: 'RESEND_NOTIFICATION',
-                              reason: 'Operator requested notification retry',
-                              target_id: log.id,
-                            })
-                          }
-                          disabled={supportActionMutation.isPending}
-                          className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition shadow-xs flex items-center gap-1.5 ml-auto"
-                        >
-                          <Send className="h-3.5 w-3.5" />
-                          <span>Resend (FR-041)</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Search Bar & Proactive Resend Action (Task 10, FR-041) */}
+          <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/90 backdrop-blur flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="relative w-full md:w-80">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Tra cứu theo mã đơn, email/SĐT người nhận..."
+                value={notifSearchQuery}
+                onChange={(e) => setNotifSearchQuery(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
             </div>
-          )}
+
+            <button
+              onClick={() => {
+                setResendNotificationType('ORDER_CONFIRMATION');
+                setResendRecipient('');
+                setResendOrderId('');
+                setResendChannel('EMAIL');
+                setResendReason('');
+                setIsResendModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm w-full md:w-auto justify-center"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>Gửi lại thông báo chủ động</span>
+            </button>
+          </div>
+
+          {(() => {
+            const filteredLogs = (notifData?.content || []).filter((log) => {
+              if (!debouncedNotifSearch.trim()) return true;
+              const q = debouncedNotifSearch.toLowerCase();
+              return (
+                (log.orderId && log.orderId.toLowerCase().includes(q)) ||
+                (log.recipient && log.recipient.toLowerCase().includes(q)) ||
+                log.id.toLowerCase().includes(q)
+              );
+            });
+
+            return isLoadingNotifs ? (
+              <SkeletonTable rows={3} cols={5} />
+            ) : filteredLogs.length === 0 ? (
+              <EmptyState
+                icon={Mail}
+                title="Không có thông báo nào"
+                description={
+                  debouncedNotifSearch
+                    ? 'Không tìm thấy log thông báo khớp với từ khóa tra cứu.'
+                    : 'Tất cả thông báo qua email và SMS đều đã được gửi thành công.'
+                }
+                actionLabel={debouncedNotifSearch ? 'Xóa bộ lọc' : undefined}
+                onAction={debouncedNotifSearch ? () => setNotifSearchQuery('') : undefined}
+              />
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-900/95 backdrop-blur z-10 border-b border-slate-800 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    <tr>
+                      <th className="py-3 px-4">Log ID</th>
+                      <th className="py-3 px-4">Channel & Template</th>
+                      <th className="py-3 px-4">Recipient</th>
+                      <th className="py-3 px-4">Status & Retries</th>
+                      <th className="py-3 px-4 text-right">Resend Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {filteredLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-900/50 transition">
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs font-bold text-indigo-400">{log.id}</span>
+                          {log.orderId && (
+                            <p className="font-mono text-[11px] text-slate-500">Order: {log.orderId}</p>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-bold text-white text-xs">{log.channel}</span>
+                          <p className="font-mono text-[11px] text-slate-400">{log.templateCode}</p>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-300">
+                          <MaskedText
+                            value={log.recipient}
+                            type={log.channel === 'SMS' ? 'phone' : 'email'}
+                            canReveal={isSuperAdmin}
+                            onRevealAudit={() =>
+                              showInfo(
+                                'PII Access Audited',
+                                `Truy cập giải mã người nhận (${log.id}) đã được lưu vết WORM Audit.`
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={log.status} variant="rose" />
+                            <span className="text-[11px] font-mono text-slate-500">({log.retryCount} tries)</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => {
+                              const inferredType = log.templateCode.includes('ORDER')
+                                ? 'ORDER_CONFIRMATION'
+                                : log.templateCode.includes('SHIPMENT')
+                                ? 'SHIPPING_TRACKING'
+                                : 'ACCOUNT_OTP';
+                              setResendNotificationType(inferredType);
+                              setResendRecipient(log.recipient);
+                              setResendOrderId(log.orderId || '');
+                              setResendChannel(log.channel === 'SMS' ? 'SMS' : 'EMAIL');
+                              setResendReason('');
+                              setIsResendModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-xs flex items-center gap-1.5 ml-auto"
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                            <span>Resend (FR-041)</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -904,6 +1022,128 @@ export const SupportPage: React.FC = () => {
           <p className="text-xs text-slate-400 leading-relaxed">
             The order service will inspect current status. If the order has already progressed to PACKING or later, the cancellation will be strictly rejected per BR-006.
           </p>
+        </div>
+      </Modal>
+
+      {/* Task 10: Resend Notification Modal (FR-041, BR-016) */}
+      <Modal
+        isOpen={isResendModalOpen}
+        onClose={() => setIsResendModalOpen(false)}
+        title="Gửi lại thông báo khách hàng (Resend Notification - FR-041)"
+        subtitle="Hỗ trợ gửi lại email / SMS xác nhận theo quyền hạn CS (FR-041, BR-016)"
+        footerActions={
+          <>
+            <button
+              onClick={() => setIsResendModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={
+                !resendRecipient.trim() ||
+                resendReason.trim().length < 15 ||
+                resendNotificationMutation.isPending
+              }
+              onClick={() => {
+                resendNotificationMutation.mutate({
+                  notification_type: resendNotificationType,
+                  recipient: resendRecipient.trim(),
+                  order_id: resendOrderId.trim() || undefined,
+                  channel: resendChannel,
+                  reason: resendReason.trim(),
+                });
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition shadow-sm flex items-center gap-1.5"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>{resendNotificationMutation.isPending ? 'Đang gửi lại...' : 'Xác nhận gửi lại'}</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-300 uppercase">Loại thông báo (Type) *</label>
+            <select
+              value={resendNotificationType}
+              onChange={(e) =>
+                setResendNotificationType(
+                  e.target.value as 'ORDER_CONFIRMATION' | 'SHIPPING_TRACKING' | 'ACCOUNT_OTP'
+                )
+              }
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="ORDER_CONFIRMATION">Xác nhận đơn hàng (ORDER_CONFIRMATION)</option>
+              <option value="SHIPPING_TRACKING">Mã vận đơn / Theo dõi vận chuyển (SHIPPING_TRACKING)</option>
+              <option value="ACCOUNT_OTP">Mã xác thực OTP tài khoản (ACCOUNT_OTP)</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-slate-300 uppercase">Kênh gửi (Channel) *</label>
+              <select
+                value={resendChannel}
+                onChange={(e) => setResendChannel(e.target.value as 'EMAIL' | 'SMS')}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="EMAIL">Email</option>
+                <option value="SMS">SMS</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-slate-300 uppercase">Mã đơn hàng (Order ID)</label>
+              <input
+                type="text"
+                placeholder="VD: ord-1001-8842 (tùy chọn)"
+                value={resendOrderId}
+                onChange={(e) => setResendOrderId(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-slate-300 uppercase">
+              Người nhận (Email hoặc Số điện thoại) *
+            </label>
+            <input
+              type="text"
+              placeholder="VD: customer@example.com hoặc 0901234567"
+              value={resendRecipient}
+              onChange={(e) => setResendRecipient(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-slate-300 uppercase">
+                Lý do gửi lại (Bắt buộc tối thiểu 15 ký tự kiểm toán) *
+              </label>
+              <span
+                className={`text-[10px] font-mono ${
+                  resendReason.trim().length >= 15 ? 'text-emerald-400' : 'text-amber-400'
+                }`}
+              >
+                {resendReason.trim().length}/15 ký tự
+              </span>
+            </div>
+            <textarea
+              rows={3}
+              placeholder="Nhập lý do gửi lại thông báo (vd: Khách hàng khiếu nại không nhận được email xác nhận qua tổng đài)..."
+              value={resendReason}
+              onChange={(e) => setResendReason(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 leading-relaxed"
+            />
+            {resendReason.trim().length > 0 && resendReason.trim().length < 15 && (
+              <p className="text-[11px] text-amber-400">
+                Lý do chưa đủ 15 ký tự (cần thêm {15 - resendReason.trim().length} ký tự nữa).
+              </p>
+            )}
+          </div>
         </div>
       </Modal>
 

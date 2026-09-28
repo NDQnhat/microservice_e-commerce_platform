@@ -28,6 +28,7 @@ import {
   Lock,
   Clock,
   Zap,
+  Truck,
 } from 'lucide-react';
 
 const MOCK_ORDERS: Order[] = [
@@ -201,13 +202,13 @@ const ORDER_LIFECYCLE_STEPS: OrderStatus[] = [
   'COMPLETED',
 ];
 
-// Valid state machine transitions per OrderStateMachine.java (BR-011: Operator prohibited from manually jumping to PAID)
-const VALID_NEXT_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+// Valid state machine transitions per OrderStateMachine.java (BR-011, ORD-T08, ORD-T09)
+export const VALID_NEXT_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   CREATED: ['RESERVED', 'CANCELLED'],
   RESERVED: ['PAYMENT_FAILED', 'EXPIRED', 'CANCELLED'],
   PAID: ['PACKING', 'CANCELLED'],
   PACKING: ['SHIPPED'],
-  SHIPPED: ['COMPLETED'],
+  SHIPPED: [], // ORD-T09: Chuyển sang COMPLETED được kích hoạt tự động qua sự kiện DELIVERED từ Fulfillment
   COMPLETED: [],
   CANCELLED: [],
   PAYMENT_FAILED: [],
@@ -220,6 +221,8 @@ export const OrdersPage: React.FC = () => {
   const { showSuccess, showError } = useToastStore();
   const { user } = useAuthStore();
   const canRetriggerSaga = user?.roles.some((r) => r === 'SUPER_ADMIN' || r === 'OPS_ADMIN') ?? false;
+  // RBAC Guard (NFR-RBAC-001, FR-028)
+  const canTransition = user?.roles.some((r) => r === 'SUPER_ADMIN' || r === 'OPS_ADMIN' || r === 'ORDER_OPERATOR') ?? false;
 
   const [activeTab, setActiveTab] = useState<'all' | 'stuck'>('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | ''>('');
@@ -240,10 +243,12 @@ export const OrdersPage: React.FC = () => {
     return getElapsedMinutes(order.placedAt) >= 60;
   };
 
-  // Transition & Cancel Modals
+  // Transition & Cancel Modals (ORD-T08 State Guard: carrier and tracking code required for SHIPPED)
   const [isTransitionModalOpen, setIsTransitionModalOpen] = useState(false);
   const [targetStatus, setTargetStatus] = useState<OrderStatus>('RESERVED');
   const [transitionNote, setTransitionNote] = useState('');
+  const [carrierNameInput, setCarrierNameInput] = useState('GHN');
+  const [trackingCodeInput, setTrackingCodeInput] = useState('');
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReasonCode, setCancelReasonCode] = useState<OrderCancellationReasonCode>('CUSTOMER_REQUEST');
@@ -278,15 +283,43 @@ export const OrdersPage: React.FC = () => {
     },
   });
 
-  // State Transition Mutation (API-ORD-005)
+  // State Transition Mutation (API-ORD-005, ORD-T08, ORD-T09)
   const transitionMutation = useMutation({
-    mutationFn: async ({ orderId, status, note }: { orderId: string; status: OrderStatus; note?: string }) => {
-      return apiClient<Order>(`/api/v1/backoffice/orders/${orderId}/status`, {
-        method: 'PUT',
+    mutationFn: async ({
+      orderId,
+      status,
+      note,
+      carrierName,
+      trackingCode,
+    }: {
+      orderId: string;
+      status: OrderStatus;
+      note?: string;
+      carrierName?: string;
+      trackingCode?: string;
+    }) => {
+      // ORD-T08 State Guard: If transitioning to SHIPPED and carrier/tracking provided, record shipment info
+      if (status === 'SHIPPED' && trackingCode) {
+        try {
+          await apiClient(`/api/v1/backoffice/orders/${orderId}/shipment`, {
+            method: 'POST',
+            body: JSON.stringify({
+              carrier_name: carrierName || 'GHN',
+              tracking_code: trackingCode,
+              target_status: 'SHIPPED',
+            }),
+          });
+        } catch {
+          // Continue transition execution
+        }
+      }
+
+      return apiClient<Order>(`/api/v1/backoffice/orders/${orderId}/transitions`, {
+        method: 'POST',
         body: JSON.stringify({ target_status: status, note }),
       });
     },
-    onSuccess: (updated) => {
+    onSuccess: (updated, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       showSuccess('Order Transitioned', `Order #${updated.id || selectedOrder?.id} moved to ${targetStatus}`);
       setIsTransitionModalOpen(false);
@@ -295,6 +328,8 @@ export const OrdersPage: React.FC = () => {
         setSelectedOrder({
           ...selectedOrder,
           status: targetStatus,
+          carrierName: variables.carrierName || selectedOrder.carrierName,
+          trackingCode: variables.trackingCode || selectedOrder.trackingCode,
         });
       }
     },
@@ -678,11 +713,20 @@ export const OrdersPage: React.FC = () => {
                         {VALID_NEXT_TRANSITIONS[ord.status]?.length > 0 && (
                           <button
                             onClick={() => {
+                              if (!canTransition) return;
                               setSelectedOrder(ord);
                               setTargetStatus(VALID_NEXT_TRANSITIONS[ord.status][0]);
+                              setCarrierNameInput(ord.carrierName || 'GHN');
+                              setTrackingCodeInput(ord.trackingCode || '');
                               setIsTransitionModalOpen(true);
                             }}
-                            className="px-2.5 py-1 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded border border-slate-700 transition"
+                            disabled={!canTransition}
+                            title={!canTransition ? 'Bạn không có quyền chuyển trạng thái đơn hàng (ORDER_STATE_TRANSITION)' : 'Transition State'}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded border transition ${
+                              canTransition
+                                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                                : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed opacity-50'
+                            }`}
                           >
                             Transition
                           </button>
@@ -779,10 +823,19 @@ export const OrdersPage: React.FC = () => {
               {VALID_NEXT_TRANSITIONS[selectedOrder.status]?.length > 0 && (
                 <button
                   onClick={() => {
+                    if (!canTransition) return;
                     setTargetStatus(VALID_NEXT_TRANSITIONS[selectedOrder.status][0]);
+                    setCarrierNameInput(selectedOrder.carrierName || 'GHN');
+                    setTrackingCodeInput(selectedOrder.trackingCode || '');
                     setIsTransitionModalOpen(true);
                   }}
-                  className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-sm transition"
+                  disabled={!canTransition}
+                  title={!canTransition ? 'Bạn không có quyền chuyển trạng thái đơn hàng (ORDER_STATE_TRANSITION)' : 'Transition State'}
+                  className={`px-4 py-2 text-xs font-semibold rounded-lg shadow-sm transition ${
+                    canTransition
+                      ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
+                  }`}
                 >
                   Transition State
                 </button>
@@ -878,6 +931,15 @@ export const OrdersPage: React.FC = () => {
                   <Ban className="h-4 w-4 shrink-0" />
                   <span>
                     Order is in terminal state <strong className="font-mono">CANCELLED</strong>. No further state transitions permitted (BR-001).
+                  </span>
+                </div>
+              )}
+
+              {selectedOrder.status === 'SHIPPED' && (
+                <div className="p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300 flex items-center gap-2">
+                  <Clock className="h-4 w-4 shrink-0 text-indigo-400" />
+                  <span>
+                    Trạng thái này được cập nhật tự động khi đơn vị vận chuyển phát sinh sự kiện <strong className="font-mono text-emerald-400">DELIVERED</strong> (ORD-T09).
                   </span>
                 </div>
               )}
@@ -1042,21 +1104,31 @@ export const OrdersPage: React.FC = () => {
             >
               Cancel
             </button>
-            <button
-              disabled={transitionMutation.isPending}
-              onClick={() => {
-                if (selectedOrder) {
-                  transitionMutation.mutate({
-                    orderId: selectedOrder.id,
-                    status: targetStatus,
-                    note: transitionNote,
-                  });
-                }
-              }}
-              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition"
-            >
-              {transitionMutation.isPending ? 'Committing...' : `Transition to ${targetStatus}`}
-            </button>
+            {(() => {
+              const isTrackingRequired = targetStatus === 'SHIPPED' && !(selectedOrder?.trackingCode || selectedOrder?.carrierName);
+              const isTrackingValid = !isTrackingRequired || /^[a-zA-Z0-9-]{8,32}$/.test(trackingCodeInput.trim());
+              const canSubmit = !transitionMutation.isPending && isTrackingValid;
+
+              return (
+                <button
+                  disabled={!canSubmit}
+                  onClick={() => {
+                    if (selectedOrder) {
+                      transitionMutation.mutate({
+                        orderId: selectedOrder.id,
+                        status: targetStatus,
+                        note: transitionNote,
+                        carrierName: isTrackingRequired ? carrierNameInput : undefined,
+                        trackingCode: isTrackingRequired ? trackingCodeInput.trim() : undefined,
+                      });
+                    }
+                  }}
+                  className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition"
+                >
+                  {transitionMutation.isPending ? 'Committing...' : `Transition to ${targetStatus}`}
+                </button>
+              );
+            })()}
           </>
         }
       >
@@ -1103,6 +1175,50 @@ export const OrdersPage: React.FC = () => {
               <p className="text-[11px] text-slate-500 italic">No manual transitions permitted from current status.</p>
             )}
           </div>
+
+          {/* ORD-T08 State Guard: Require carrier & tracking when transitioning to SHIPPED if not set */}
+          {targetStatus === 'SHIPPED' && !(selectedOrder?.trackingCode || selectedOrder?.carrierName) && (
+            <div className="p-3.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-xs text-indigo-300 space-y-3">
+              <div className="flex items-center gap-2">
+                <Truck className="h-4 w-4 text-indigo-400" />
+                <span className="font-semibold text-white">Yêu cầu thông tin vận đơn trước khi Xuất kho (ORD-T08, BR-011)</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-300 uppercase">Hãng vận chuyển</label>
+                  <select
+                    value={carrierNameInput}
+                    onChange={(e) => setCarrierNameInput(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="GHN">Giao Hàng Nhanh (GHN)</option>
+                    <option value="GHTK">Giao Hàng Tiết Kiệm (GHTK)</option>
+                    <option value="VIETTELPOST">Viettel Post</option>
+                    <option value="VNPOST">VNPost</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold text-slate-300 uppercase">Mã vận đơn (Tracking Code)</label>
+                  <input
+                    type="text"
+                    value={trackingCodeInput}
+                    onChange={(e) => setTrackingCodeInput(e.target.value)}
+                    placeholder="VD: GHN-8849102-VN"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono"
+                  />
+                </div>
+              </div>
+              {!/^[a-zA-Z0-9-]{8,32}$/.test(trackingCodeInput.trim()) ? (
+                <p className="text-[11px] text-amber-400">
+                  Mã vận đơn bắt buộc nhập từ 8-32 ký tự chữ, số hoặc dấu gạch nối (^[a-zA-Z0-9-]{'{8,32}'}$).
+                </p>
+              ) : (
+                <p className="text-[11px] text-emerald-400">
+                  Mã vận đơn hợp lệ theo chuẩn đối tác vận chuyển.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-300 uppercase">

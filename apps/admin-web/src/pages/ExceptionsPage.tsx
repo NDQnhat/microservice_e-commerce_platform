@@ -234,6 +234,26 @@ export const ExceptionsPage: React.FC = () => {
     onError: (err) => showError(err, 'Failed to ignore exception'),
   });
 
+  // Replay DLQ Mutation (Task 06, EXC-T01, EXC-T02, API-EXC-002)
+  const [isReplayModalOpen, setIsReplayModalOpen] = useState(false);
+  const [recordToReplay, setRecordToReplay] = useState<ExceptionRecord | null>(null);
+
+  const replayMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiClient(`/api/v1/backoffice/exceptions/${id}/replay`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'REPLAY' }),
+      });
+    },
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['exceptions'] });
+      showSuccess('DLQ Message Replayed', `Sự kiện lỗi #${id} đã được phát lại thành công vào Message Broker.`);
+      setIsReplayModalOpen(false);
+      setRecordToReplay(null);
+    },
+    onError: (err) => showError(err, 'Failed to replay DLQ exception message'),
+  });
+
   const records = (data?.content || []).filter((r) => {
     if (!debouncedSearch.trim()) return true;
     const q = debouncedSearch.toLowerCase();
@@ -387,15 +407,28 @@ export const ExceptionsPage: React.FC = () => {
                       </button>
                     )}
                     {(rec.status === 'OPEN' || rec.status === 'INVESTIGATING') && (
-                      <button
-                        onClick={() => {
-                          setSelectedRecord(rec);
-                          setIsResolveModalOpen(true);
-                        }}
-                        className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition shadow-xs"
-                      >
-                        Resolve
-                      </button>
+                      <>
+                        <button
+                          onClick={() => {
+                            setRecordToReplay(rec);
+                            setIsReplayModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-xs font-semibold bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white rounded border border-indigo-500/30 transition inline-flex items-center gap-1"
+                          title="Tái phát sự kiện DLQ vào Message Broker (API-EXC-002)"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          <span>Replay DLQ</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedRecord(rec);
+                            setIsResolveModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition shadow-xs"
+                        >
+                          Resolve
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={() => setSelectedRecord(rec)}
@@ -434,6 +467,16 @@ export const ExceptionsPage: React.FC = () => {
               )}
               {(selectedRecord.status === 'OPEN' || selectedRecord.status === 'INVESTIGATING') && (
                 <>
+                  <button
+                    onClick={() => {
+                      setRecordToReplay(selectedRecord);
+                      setIsReplayModalOpen(true);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600 hover:text-white border border-indigo-500/30 rounded-lg transition flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Replay DLQ Message</span>
+                  </button>
                   <button
                     onClick={() => setIsIgnoreModalOpen(true)}
                     className="px-4 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
@@ -660,6 +703,74 @@ export const ExceptionsPage: React.FC = () => {
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-500"
             />
           </div>
+        </div>
+      </Modal>
+
+      {/* Replay DLQ Modal (Task 06, EXC-T01, EXC-T02, API-EXC-002) */}
+      <Modal
+        isOpen={isReplayModalOpen}
+        onClose={() => {
+          setIsReplayModalOpen(false);
+          setRecordToReplay(null);
+        }}
+        title="Tái phát sự kiện ngoại lệ (Replay DLQ Message)"
+        subtitle={recordToReplay ? `Ngoại lệ #${recordToReplay.id} • Dịch vụ: ${recordToReplay.sourceService}` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => {
+                setIsReplayModalOpen(false);
+                setRecordToReplay(null);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={replayMutation.isPending}
+              onClick={() => {
+                if (recordToReplay) {
+                  replayMutation.mutate(recordToReplay.id);
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg shadow-sm transition flex items-center gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${replayMutation.isPending ? 'animate-spin' : ''}`} />
+              <span>{replayMutation.isPending ? 'Đang Replay...' : 'Xác nhận Replay sự kiện'}</span>
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-2">
+            <div className="flex items-center gap-2 text-amber-400 font-bold">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Cảnh báo tác động lên Message Broker (EXC-T01, EXC-T02)</span>
+            </div>
+            <p className="leading-relaxed">
+              Hành động này sẽ tái phát (replay) thông điệp lỗi từ Dead Letter Queue (DLQ) trở lại Message Broker để các dịch vụ liên quan tiêu thụ và xử lý lại luồng nghiệp vụ.
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Hãy đảm bảo nguyên nhân gốc rễ (Root Cause) đã được xử lý để tránh gây nghẽn hàng đợi hoặc lặp vô tận.
+            </p>
+          </div>
+
+          {recordToReplay && (
+            <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs space-y-1.5 font-mono">
+              <div className="flex justify-between text-slate-400">
+                <span>Loại ngoại lệ:</span>
+                <span className="text-white font-bold">{recordToReplay.exceptionType}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Mã lỗi:</span>
+                <span className="text-rose-400">{recordToReplay.errorCode}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Tham chiếu:</span>
+                <span className="text-indigo-400">{recordToReplay.referenceType} #{recordToReplay.referenceId}</span>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

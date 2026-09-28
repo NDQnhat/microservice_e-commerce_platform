@@ -26,6 +26,7 @@ import {
   UploadCloud,
   Trash2,
   Star,
+  Edit3,
 } from 'lucide-react';
 
 const INITIAL_MASTER_ATTRIBUTES: MasterAttribute[] = [
@@ -264,11 +265,41 @@ export const CatalogPage: React.FC = () => {
   const [newCatSlug, setNewCatSlug] = useState('');
   const [newCatParentId, setNewCatParentId] = useState<string>('');
 
-  // Pricing State
+  // Edit Product State (Task 07, API-CAT-004, API-CAT-008)
+  const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editProductName, setEditProductName] = useState('');
+  const [editProductSlug, setEditProductSlug] = useState('');
+  const [editProductDesc, setEditProductDesc] = useState('');
+  const [editProductCatId, setEditProductCatId] = useState('');
+  const [productMedia, setProductMedia] = useState<{ id: string; url: string; fileName: string; isPrimary: boolean }[]>([]);
+  const [newProductMediaUrl, setNewProductMediaUrl] = useState('');
+
+  // Category Edit & Deletion Guard State (Task 08, BR-005, API-CAT-005)
+  const [isEditCategoryModalOpen, setIsEditCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editCatName, setEditCatName] = useState('');
+  const [editCatSlug, setEditCatSlug] = useState('');
+  const [editCatParentId, setEditCatParentId] = useState<string>('');
+  const [editCatIsActive, setEditCatIsActive] = useState(true);
+  const [isDeleteCategoryModalOpen, setIsDeleteCategoryModalOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+
+  // Pricing & Promotion State with Time Windows (Task 04, FR-026, API-PRC-002)
   const [pricingSkuId, setPricingSkuId] = useState('sku-peg-40-blk-42');
   const [newPriceAmount, setNewPriceAmount] = useState('2500000');
   const [promoName, setPromoName] = useState('Flash Autumn Sale');
   const [promoDiscountAmount, setPromoDiscountAmount] = useState('200000');
+  const [promoStartAt, setPromoStartAt] = useState(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + 5);
+    return d.toISOString().slice(0, 16);
+  });
+  const [promoEndAt, setPromoEndAt] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 16);
+  });
 
   // Query Products
   const { data: productData, isLoading: isLoadingProducts, refetch: refetchProducts, isFetching } = useQuery<PageResponse<Product>>({
@@ -345,17 +376,116 @@ export const CatalogPage: React.FC = () => {
   });
 
   const createPromoMutation = useMutation({
-    mutationFn: async (payload: { skuId: string; promotionName: string; discountAmount: number }) => {
+    mutationFn: async (payload: {
+      skuId: string;
+      promotionName: string;
+      discountAmount: number;
+      start_at: string;
+      end_at: string;
+      status: string;
+    }) => {
       return apiClient('/api/v1/backoffice/prices/promotions', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
     },
     onSuccess: () => {
-      showSuccess('Promotion Registered', `Promotion "${promoName}" scheduled successfully`);
+      showSuccess('Promotion Registered', `Promotion "${promoName}" scheduled successfully (ISO-8601 compliant)`);
       setIsPromotionModalOpen(false);
     },
     onError: (err) => showError(err, 'Failed to register promotion'),
+  });
+
+  // Task 07: Edit Product Mutation & Product Media Upload (API-CAT-004, API-CAT-008)
+  const updateProductMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      name: string;
+      slug: string;
+      description: string;
+      categoryId: string;
+    }) => {
+      return apiClient<Product>(`/api/v1/backoffice/products/${payload.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-products'] });
+      showSuccess('Product Updated', `Đã cập nhật sản phẩm "${updated.name || editProductName}" (API-CAT-004)`);
+      setIsEditProductModalOpen(false);
+      if (selectedProduct && selectedProduct.id === (updated.id || editingProduct?.id)) {
+        setSelectedProduct({
+          ...selectedProduct,
+          name: updated.name || editProductName,
+          slug: updated.slug || editProductSlug,
+          description: updated.description || editProductDesc,
+          categoryId: updated.categoryId || editProductCatId,
+          categoryName: categories.find((c) => c.id === (updated.categoryId || editProductCatId))?.name || selectedProduct.categoryName,
+        });
+      }
+    },
+    onError: (err) => showError(err, 'Failed to update product'),
+  });
+
+  const uploadProductMediaMutation = useMutation({
+    mutationFn: async ({ productId, mediaUrl }: { productId: string; mediaUrl: string }) => {
+      return apiClient(`/api/v1/backoffice/products/${productId}/media`, {
+        method: 'POST',
+        body: JSON.stringify({
+          sku_id: null, // API-CAT-008: media cấp Sản phẩm cha
+          url: mediaUrl,
+          is_primary: productMedia.length === 0,
+        }),
+      });
+    },
+    onSuccess: () => {
+      showSuccess('Media Added', 'Ảnh cấp sản phẩm (sku_id = null) đã được liên kết');
+      setNewProductMediaUrl('');
+    },
+    onError: (err) => showError(err, 'Failed to upload product media'),
+  });
+
+  // Task 08: Category Hierarchy & Deletion Guard (BR-005, API-CAT-005)
+  const getAssignedProductsCount = (catId: string): number => {
+    const prods = productData?.content || MOCK_PRODUCTS;
+    return prods.filter((p) => p.categoryId === catId).length;
+  };
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      name: string;
+      slug: string;
+      parentId?: string | null;
+      isActive: boolean;
+    }) => {
+      return apiClient<Category>(`/api/v1/backoffice/categories/${payload.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-categories'] });
+      showSuccess('Category Updated', `Danh mục "${updated.name || editCatName}" đã được cập nhật`);
+      setIsEditCategoryModalOpen(false);
+    },
+    onError: (err) => showError(err, 'Failed to update category'),
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (catId: string) => {
+      return apiClient(`/api/v1/backoffice/categories/${catId}`, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['catalog-categories'] });
+      showSuccess('Category Deleted', 'Đã xóa danh mục thành công');
+      setIsDeleteCategoryModalOpen(false);
+      setCategoryToDelete(null);
+    },
+    onError: (err) => showError(err, 'Failed to delete category (BR-005 violation)'),
   });
 
   const discontinueProductMutation = useMutation({
@@ -564,6 +694,29 @@ export const CatalogPage: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
+                          onClick={() => {
+                            setEditingProduct(prod);
+                            setEditProductName(prod.name);
+                            setEditProductSlug(prod.slug);
+                            setEditProductDesc(prod.description || '');
+                            setEditProductCatId(prod.categoryId || '');
+                            setProductMedia([
+                              {
+                                id: 'prod-media-1',
+                                fileName: 'primary-product-shot.jpg',
+                                url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=80',
+                                isPrimary: true,
+                              },
+                            ]);
+                            setIsEditProductModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-indigo-400 rounded hover:bg-slate-800 transition inline-flex items-center gap-1 text-xs"
+                          title="Chỉnh sửa sản phẩm (API-CAT-004)"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                          <span className="hidden sm:inline">Chỉnh sửa</span>
+                        </button>
+                        <button
                           onClick={() => setSelectedProduct(prod)}
                           className="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition inline-flex items-center"
                           title="Inspect Product & SKUs"
@@ -611,6 +764,8 @@ export const CatalogPage: React.FC = () => {
               .filter((c) => !c.parentId)
               .map((root) => {
                 const subCats = categories.filter((c) => c.parentId === root.id);
+                const rootProductCount = getAssignedProductsCount(root.id);
+
                 return (
                   <div key={root.id} className="border border-slate-800 rounded-xl p-4 bg-slate-900/40 space-y-3">
                     <div className="flex items-center justify-between">
@@ -618,25 +773,88 @@ export const CatalogPage: React.FC = () => {
                         <FolderTree className="h-4 w-4 text-indigo-400" />
                         <span className="font-bold text-white text-sm">{root.name}</span>
                         <span className="font-mono text-[11px] text-slate-500">/{root.slug}</span>
+                        <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800">
+                          {rootProductCount} SP
+                        </span>
                       </div>
-                      <StatusBadge status={root.isActive ? 'ACTIVE' : 'INACTIVE'} variant="emerald" />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={root.isActive ? 'ACTIVE' : 'INACTIVE'} variant={root.isActive ? 'emerald' : 'rose'} />
+                        <button
+                          onClick={() => {
+                            setEditingCategory(root);
+                            setEditCatName(root.name);
+                            setEditCatSlug(root.slug);
+                            setEditCatParentId(root.parentId || '');
+                            setEditCatIsActive(root.isActive);
+                            setIsEditCategoryModalOpen(true);
+                          }}
+                          className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+                          title="Chỉnh sửa danh mục"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setCategoryToDelete(root);
+                            setIsDeleteCategoryModalOpen(true);
+                          }}
+                          className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-500/10 transition"
+                          title="Xóa / Ngừng hoạt động danh mục"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Subcategories (Level 2) */}
                     <div className="pl-6 border-l-2 border-slate-800 space-y-2">
-                      {subCats.map((sub) => (
-                        <div
-                          key={sub.id}
-                          className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 text-xs"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-500">↳</span>
-                            <span className="text-slate-200 font-medium">{sub.name}</span>
-                            <span className="font-mono text-slate-500">/{sub.slug}</span>
+                      {subCats.map((sub) => {
+                        const subProductCount = getAssignedProductsCount(sub.id);
+
+                        return (
+                          <div
+                            key={sub.id}
+                            className="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60 text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-500">↳</span>
+                              <span className="text-slate-200 font-medium">{sub.name}</span>
+                              <span className="font-mono text-slate-500">/{sub.slug}</span>
+                              <span className="text-[10px] font-mono text-slate-400 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800">
+                                {subProductCount} SP
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-indigo-400 font-mono">Level 2</span>
+                              <StatusBadge status={sub.isActive ? 'ACTIVE' : 'INACTIVE'} variant={sub.isActive ? 'emerald' : 'rose'} />
+                              <button
+                                onClick={() => {
+                                  setEditingCategory(sub);
+                                  setEditCatName(sub.name);
+                                  setEditCatSlug(sub.slug);
+                                  setEditCatParentId(sub.parentId || '');
+                                  setEditCatIsActive(sub.isActive);
+                                  setIsEditCategoryModalOpen(true);
+                                }}
+                                className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+                                title="Chỉnh sửa danh mục con"
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCategoryToDelete(sub);
+                                  setIsDeleteCategoryModalOpen(true);
+                                }}
+                                className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-500/10 transition"
+                                title="Xóa danh mục con"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
-                          <span className="text-[10px] text-indigo-400 font-mono">Level 2</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {subCats.length === 0 && (
                         <p className="text-xs text-slate-500 italic">No sub-categories assigned</p>
                       )}
@@ -1020,12 +1238,12 @@ export const CatalogPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* Modal: Create Promotion */}
+      {/* Modal: Create Promotion (Task 04, FR-026, API-PRC-002) */}
       <Modal
         isOpen={isPromotionModalOpen}
         onClose={() => setIsPromotionModalOpen(false)}
         title="Create Promotional Discount"
-        subtitle="Applies time-bounded promotion to selected SKU"
+        subtitle="Applies time-bounded promotion to selected SKU (ISO-8601 window)"
         footerActions={
           <>
             <button
@@ -1034,19 +1252,38 @@ export const CatalogPage: React.FC = () => {
             >
               Cancel
             </button>
-            <button
-              disabled={createPromoMutation.isPending}
-              onClick={() => {
-                createPromoMutation.mutate({
-                  skuId: pricingSkuId,
-                  promotionName: promoName,
-                  discountAmount: Number(promoDiscountAmount),
-                });
-              }}
-              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition"
-            >
-              {createPromoMutation.isPending ? 'Scheduling...' : 'Schedule Promotion'}
-            </button>
+            {(() => {
+              const isStartEndOrderValid =
+                Boolean(promoStartAt && promoEndAt && new Date(promoStartAt).getTime() < new Date(promoEndAt).getTime());
+              const isEndFutureValid = Boolean(promoEndAt && new Date(promoEndAt).getTime() > Date.now());
+              const isFormValid =
+                Boolean(promoName.trim() &&
+                pricingSkuId.trim() &&
+                Number(promoDiscountAmount) > 0 &&
+                promoStartAt &&
+                promoEndAt &&
+                isStartEndOrderValid &&
+                isEndFutureValid);
+
+              return (
+                <button
+                  disabled={!isFormValid || createPromoMutation.isPending}
+                  onClick={() => {
+                    createPromoMutation.mutate({
+                      skuId: pricingSkuId,
+                      promotionName: promoName,
+                      discountAmount: Number(promoDiscountAmount),
+                      start_at: new Date(promoStartAt).toISOString(),
+                      end_at: new Date(promoEndAt).toISOString(),
+                      status: 'ACTIVE',
+                    });
+                  }}
+                  className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition"
+                >
+                  {createPromoMutation.isPending ? 'Scheduling...' : 'Schedule Promotion'}
+                </button>
+              );
+            })()}
           </>
         }
       >
@@ -1080,6 +1317,336 @@ export const CatalogPage: React.FC = () => {
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
             />
           </div>
+
+          {/* Time Frame Inputs (Task 04) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 uppercase">Ngày bắt đầu hiệu lực (start_at)</label>
+              <input
+                type="datetime-local"
+                value={promoStartAt}
+                onChange={(e) => setPromoStartAt(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 uppercase">Ngày kết thúc hiệu lực (end_at)</label>
+              <input
+                type="datetime-local"
+                value={promoEndAt}
+                onChange={(e) => setPromoEndAt(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+          </div>
+
+          {promoStartAt && promoEndAt && new Date(promoStartAt).getTime() >= new Date(promoEndAt).getTime() && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+              Cảnh báo: Ngày bắt đầu (start_at) phải nhỏ hơn ngày kết thúc (end_at).
+            </p>
+          )}
+
+          {promoEndAt && new Date(promoEndAt).getTime() <= Date.now() && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+              Cảnh báo: Ngày kết thúc (end_at) không được ở trong quá khứ.
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      {/* Modal: Edit Product & Product Media Upload (Task 07, API-CAT-004, API-CAT-008) */}
+      <Modal
+        isOpen={isEditProductModalOpen}
+        onClose={() => setIsEditProductModalOpen(false)}
+        title="Chỉnh sửa Thông tin Sản phẩm & Media (API-CAT-004/008)"
+        subtitle={editingProduct ? `Cập nhật dữ liệu cho: ${editingProduct.name} (${editingProduct.id})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => setIsEditProductModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={!editProductName.trim() || !editProductSlug.trim() || updateProductMutation.isPending}
+              onClick={() => {
+                if (editingProduct) {
+                  updateProductMutation.mutate({
+                    id: editingProduct.id,
+                    name: editProductName.trim(),
+                    slug: editProductSlug.trim(),
+                    description: editProductDesc.trim(),
+                    categoryId: editProductCatId,
+                  });
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
+            >
+              {updateProductMutation.isPending ? 'Đang lưu...' : 'Lưu thay đổi'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Tên sản phẩm</label>
+            <input
+              type="text"
+              value={editProductName}
+              onChange={(e) => setEditProductName(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Slug đường dẫn</label>
+            <input
+              type="text"
+              value={editProductSlug}
+              onChange={(e) => setEditProductSlug(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Mô tả sản phẩm</label>
+            <textarea
+              rows={3}
+              value={editProductDesc}
+              onChange={(e) => setEditProductDesc(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Danh mục trực thuộc</label>
+            <select
+              value={editProductCatId}
+              onChange={(e) => setEditProductCatId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} {c.parentId ? '(Sub-category)' : '(Root)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Media cấp Sản phẩm cha (sku_id = null per API-CAT-008) */}
+          <div className="space-y-2 pt-2 border-t border-slate-800">
+            <label className="text-xs font-semibold text-slate-300 uppercase flex items-center justify-between">
+              <span>Hình ảnh đại diện cấp sản phẩm (sku_id = null)</span>
+              <span className="text-[10px] text-indigo-400 font-mono">API-CAT-008</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Nhập URL hình ảnh sản phẩm (VD: https://...)"
+                value={newProductMediaUrl}
+                onChange={(e) => setNewProductMediaUrl(e.target.value)}
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                disabled={!newProductMediaUrl.trim() || uploadProductMediaMutation.isPending}
+                onClick={() => {
+                  if (editingProduct && newProductMediaUrl.trim()) {
+                    uploadProductMediaMutation.mutate({
+                      productId: editingProduct.id,
+                      mediaUrl: newProductMediaUrl.trim(),
+                    });
+                    setProductMedia((prev) => [
+                      ...prev,
+                      {
+                        id: `prod-media-${Date.now()}`,
+                        fileName: 'product-image.jpg',
+                        url: newProductMediaUrl.trim(),
+                        isPrimary: prev.length === 0,
+                      },
+                    ]);
+                  }
+                }}
+                className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
+              >
+                Thêm ảnh
+              </button>
+            </div>
+
+            {productMedia.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {productMedia.map((m) => (
+                  <div key={m.id} className="relative rounded-lg overflow-hidden border border-slate-800 p-1 bg-slate-950">
+                    <img src={m.url} alt="Product Media" className="w-full h-16 object-cover rounded" />
+                    <button
+                      type="button"
+                      onClick={() => setProductMedia((prev) => prev.filter((item) => item.id !== m.id))}
+                      className="absolute top-1.5 right-1.5 p-0.5 rounded bg-black/70 text-rose-400 hover:text-white"
+                      title="Xóa ảnh"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Edit Category (Task 08, API-CAT-005) */}
+      <Modal
+        isOpen={isEditCategoryModalOpen}
+        onClose={() => setIsEditCategoryModalOpen(false)}
+        title="Chỉnh sửa Danh mục (API-CAT-005)"
+        subtitle="Tuân thủ tối đa 2 cấp phân cấp (Root Category → Sub-Category)"
+        footerActions={
+          <>
+            <button
+              onClick={() => setIsEditCategoryModalOpen(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={!editCatName.trim() || !editCatSlug.trim() || updateCategoryMutation.isPending}
+              onClick={() => {
+                if (editingCategory) {
+                  updateCategoryMutation.mutate({
+                    id: editingCategory.id,
+                    name: editCatName.trim(),
+                    slug: editCatSlug.trim(),
+                    parentId: editCatParentId || null,
+                    isActive: editCatIsActive,
+                  });
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg transition"
+            >
+              {updateCategoryMutation.isPending ? 'Đang cập nhật...' : 'Cập nhật danh mục'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Tên danh mục</label>
+            <input
+              type="text"
+              value={editCatName}
+              onChange={(e) => setEditCatName(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Slug</label>
+            <input
+              type="text"
+              value={editCatSlug}
+              onChange={(e) => setEditCatSlug(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">Danh mục cha (Tối đa 2 cấp)</label>
+            <select
+              value={editCatParentId}
+              onChange={(e) => setEditCatParentId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+            >
+              <option value="">Không có (Danh mục gốc Root - Cấp 1)</option>
+              {categories
+                .filter((c) => !c.parentId && c.id !== editingCategory?.id)
+                .map((root) => (
+                  <option key={root.id} value={root.id}>
+                    {root.name} (Root)
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800">
+            <div>
+              <p className="text-xs font-semibold text-white">Trạng thái hoạt động</p>
+              <p className="text-[11px] text-slate-400">Cho phép người mua nhìn thấy danh mục trên Storefront</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditCatIsActive(!editCatIsActive)}
+              className={`px-3 py-1 text-xs font-semibold rounded-lg transition ${
+                editCatIsActive ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+              }`}
+            >
+              {editCatIsActive ? 'ACTIVE' : 'INACTIVE'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Delete or Deactivate Category Guard (Task 08, BR-005) */}
+      <Modal
+        isOpen={isDeleteCategoryModalOpen}
+        onClose={() => {
+          setIsDeleteCategoryModalOpen(false);
+          setCategoryToDelete(null);
+        }}
+        title="Xác nhận Xóa / Vô hiệu hóa Danh mục (BR-005)"
+        subtitle={categoryToDelete ? `Danh mục: ${categoryToDelete.name} (${categoryToDelete.slug})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => {
+                setIsDeleteCategoryModalOpen(false);
+                setCategoryToDelete(null);
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Đóng
+            </button>
+            {categoryToDelete && getAssignedProductsCount(categoryToDelete.id) === 0 ? (
+              <button
+                disabled={deleteCategoryMutation.isPending}
+                onClick={() => {
+                  deleteCategoryMutation.mutate(categoryToDelete.id);
+                }}
+                className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg transition"
+              >
+                {deleteCategoryMutation.isPending ? 'Đang xóa...' : 'Xác nhận xóa danh mục'}
+              </button>
+            ) : null}
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {categoryToDelete && getAssignedProductsCount(categoryToDelete.id) > 0 ? (
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-rose-400 font-bold">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Vi phạm ràng buộc toàn vẹn BR-005</span>
+              </div>
+              <p className="leading-relaxed">
+                Không thể xóa hoặc vô hiệu hóa danh mục <strong className="text-white font-mono">{categoryToDelete.name}</strong> vì đang có{' '}
+                <strong className="text-rose-400 font-mono">{getAssignedProductsCount(categoryToDelete.id)} sản phẩm</strong> trực thuộc.
+              </p>
+              <p className="text-[11px] text-slate-400">
+                Quy tắc nghiệp vụ BR-005 cấm xóa danh mục khi còn sản phẩm tham chiếu. Vui lòng chuyển các sản phẩm sang danh mục khác trước khi thực hiện.
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <AlertTriangle className="h-4 w-4" />
+                <span>Cảnh báo thao tác xóa danh mục</span>
+              </div>
+              <p className="leading-relaxed">
+                Danh mục này hiện không có sản phẩm nào trực thuộc (0 sản phẩm). Bạn có chắc chắn muốn xóa vĩnh viễn danh mục này không?
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
 

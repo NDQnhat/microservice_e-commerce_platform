@@ -95,6 +95,7 @@ export interface DashboardSummary {
   activeOrdersCount?: number;
   lowStockCount?: number;
   systemHealth?: string;
+  orderStatusBreakdown?: Record<string, number>;
 }
 
 // ==========================================
@@ -145,6 +146,8 @@ export interface Order {
   shippingWard?: string;
   shippingDistrict?: string;
   shippingCity?: string;
+  carrierName?: string;
+  trackingCode?: string;
   subtotalAmount: number;
   shippingFeeAmount: number;
   discountAmount: number;
@@ -229,7 +232,14 @@ export interface SkuInventory {
   availableQuantity: number;
   reservedQuantity: number;
   totalQuantity: number;
+  lowStockThreshold?: number;
   updatedAt?: string;
+}
+
+export interface InventoryItem extends SkuInventory {
+  productName?: string;
+  skuCode?: string;
+  lowStockThreshold?: number;
 }
 
 export interface InventoryAdjustmentLog {

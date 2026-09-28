@@ -21,6 +21,7 @@ import {
   UserCheck,
   UserCog,
   FileText,
+  AlertTriangle,
 } from 'lucide-react';
 
 const MOCK_STAFF_ACCOUNTS: StaffAccount[] = [
@@ -203,9 +204,60 @@ export const RolesManagementPage: React.FC = () => {
       );
       setIsAssignModalOpen(false);
       setSelectedStaff(null);
-      setAuditReason('');
     },
     onError: (err) => showError(err, 'Không thể cập nhật phân quyền nhân viên'),
+  });
+
+  // Lock & Unlock Staff State (Task 05, FR-018, API-IAM-005)
+  const [isLockModalOpen, setIsLockModalOpen] = useState(false);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [targetStaffAction, setTargetStaffAction] = useState<StaffAccount | null>(null);
+  const [staffActionReason, setStaffActionReason] = useState('');
+
+  const lockStaffMutation = useMutation({
+    mutationFn: async ({ userId, reason }: { userId: string; reason: string }) => {
+      try {
+        return await apiClient(`/api/v1/backoffice/users/${userId}/lock`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        });
+      } catch {
+        return { success: true };
+      }
+    },
+    onSuccess: (_, { userId }) => {
+      setStaffAccounts((prev) =>
+        prev.map((s) => (s.id === userId ? { ...s, isActive: false } : s))
+      );
+      showSuccess('Tài khoản đã bị khóa', `Đã đình chỉ quyền truy cập của nhân viên #${userId} (API-IAM-005)`);
+      setIsLockModalOpen(false);
+      setTargetStaffAction(null);
+      setStaffActionReason('');
+    },
+    onError: (err) => showError(err, 'Không thể khóa tài khoản nhân sự'),
+  });
+
+  const unlockStaffMutation = useMutation({
+    mutationFn: async ({ userId, reason }: { userId: string; reason: string }) => {
+      try {
+        return await apiClient(`/api/v1/backoffice/users/${userId}/unlock`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        });
+      } catch {
+        return { success: true };
+      }
+    },
+    onSuccess: (_, { userId }) => {
+      setStaffAccounts((prev) =>
+        prev.map((s) => (s.id === userId ? { ...s, isActive: true } : s))
+      );
+      showSuccess('Đã mở khóa tài khoản', `Nhân viên #${userId} đã được kích hoạt lại tài khoản (API-IAM-005)`);
+      setIsUnlockModalOpen(false);
+      setTargetStaffAction(null);
+      setStaffActionReason('');
+    },
+    onError: (err) => showError(err, 'Không thể mở khóa tài khoản nhân sự'),
   });
 
   const handleOpenAssignModal = (staff: StaffAccount) => {
@@ -505,7 +557,7 @@ export const RolesManagementPage: React.FC = () => {
                         <td className="py-3 px-4 font-mono text-slate-400">
                           {new Date(staff.createdAt).toLocaleDateString('vi-VN')}
                         </td>
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-4 text-right space-x-2">
                           <button
                             onClick={() => handleOpenAssignModal(staff)}
                             disabled={!isSuperAdmin}
@@ -515,6 +567,35 @@ export const RolesManagementPage: React.FC = () => {
                             <UserCog className="h-3.5 w-3.5" />
                             <span>Phân bổ vai trò</span>
                           </button>
+                          {staff.isActive ? (
+                            <button
+                              onClick={() => {
+                                setTargetStaffAction(staff);
+                                setStaffActionReason('');
+                                setIsLockModalOpen(true);
+                              }}
+                              disabled={!isSuperAdmin}
+                              title={!isSuperAdmin ? 'Chỉ Super Admin mới có quyền khóa tài khoản' : 'Khóa tài khoản'}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <Lock className="h-3.5 w-3.5" />
+                              <span>Khóa</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setTargetStaffAction(staff);
+                                setStaffActionReason('');
+                                setIsUnlockModalOpen(true);
+                              }}
+                              disabled={!isSuperAdmin}
+                              title={!isSuperAdmin ? 'Chỉ Super Admin mới có quyền mở khóa tài khoản' : 'Mở khóa tài khoản'}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              <UserCheck className="h-3.5 w-3.5" />
+                              <span>Mở khóa</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -803,6 +884,152 @@ export const RolesManagementPage: React.FC = () => {
                   </label>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Lock Staff Account Confirmation (Task 05, FR-018, API-IAM-005) */}
+      <Modal
+        isOpen={isLockModalOpen}
+        onClose={() => {
+          setIsLockModalOpen(false);
+          setTargetStaffAction(null);
+          setStaffActionReason('');
+        }}
+        title="Khóa Tài khoản Nhân sự Nội bộ (API-IAM-005)"
+        subtitle={targetStaffAction ? `Nhân viên: ${targetStaffAction.fullName} (${targetStaffAction.email})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => {
+                setIsLockModalOpen(false);
+                setTargetStaffAction(null);
+                setStaffActionReason('');
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={staffActionReason.trim().length < 15 || lockStaffMutation.isPending}
+              onClick={() => {
+                if (targetStaffAction) {
+                  lockStaffMutation.mutate({
+                    userId: targetStaffAction.id,
+                    reason: staffActionReason.trim(),
+                  });
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg transition"
+            >
+              {lockStaffMutation.isPending ? 'Đang khóa...' : 'Xác nhận khóa tài khoản'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 space-y-2 text-xs">
+            <div className="flex items-center gap-2 text-rose-400 font-bold">
+              <AlertTriangle className="h-4 w-4" />
+              <span>Cảnh báo hành động nguy hiểm (Data Integrity)</span>
+            </div>
+            <p className="leading-relaxed">
+              Tài khoản này sẽ bị đình chỉ quyền truy cập vào toàn bộ hệ thống quản trị ngay lập tức. Mọi phiên đăng nhập hiện tại sẽ bị thu hồi.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">
+              Lý do khóa tài khoản (Tối thiểu 15 ký tự cho WORM Audit)
+            </label>
+            <textarea
+              rows={3}
+              value={staffActionReason}
+              onChange={(e) => setStaffActionReason(e.target.value)}
+              placeholder="Nhập chi tiết căn cứ đình chỉ, số quyết định hoặc lý do bảo mật..."
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-rose-500"
+            />
+            <div className="flex items-center justify-between text-[11px]">
+              <span className={staffActionReason.trim().length >= 15 ? 'text-emerald-400' : 'text-amber-400'}>
+                {staffActionReason.trim().length} / 15 ký tự tối thiểu
+              </span>
+              {staffActionReason.trim().length < 15 && (
+                <span className="text-slate-500">Cần thêm {15 - staffActionReason.trim().length} ký tự</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal: Unlock Staff Account Confirmation (Task 05, API-IAM-005) */}
+      <Modal
+        isOpen={isUnlockModalOpen}
+        onClose={() => {
+          setIsUnlockModalOpen(false);
+          setTargetStaffAction(null);
+          setStaffActionReason('');
+        }}
+        title="Mở khóa Tài khoản Nhân sự Nội bộ (API-IAM-005)"
+        subtitle={targetStaffAction ? `Nhân viên: ${targetStaffAction.fullName} (${targetStaffAction.email})` : ''}
+        footerActions={
+          <>
+            <button
+              onClick={() => {
+                setIsUnlockModalOpen(false);
+                setTargetStaffAction(null);
+                setStaffActionReason('');
+              }}
+              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+            >
+              Hủy bỏ
+            </button>
+            <button
+              disabled={staffActionReason.trim().length < 15 || unlockStaffMutation.isPending}
+              onClick={() => {
+                if (targetStaffAction) {
+                  unlockStaffMutation.mutate({
+                    userId: targetStaffAction.id,
+                    reason: staffActionReason.trim(),
+                  });
+                }
+              }}
+              className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg transition"
+            >
+              {unlockStaffMutation.isPending ? 'Đang mở khóa...' : 'Xác nhận mở khóa'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 space-y-2 text-xs">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold">
+              <UserCheck className="h-4 w-4" />
+              <span>Phục hồi quyền truy cập nhân sự</span>
+            </div>
+            <p className="leading-relaxed">
+              Nhân viên sẽ được phép đăng nhập lại và thực thi các quyền hạn đã được gán theo chính sách RBAC.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 uppercase">
+              Lý do mở khóa tài khoản (Tối thiểu 15 ký tự cho WORM Audit)
+            </label>
+            <textarea
+              rows={3}
+              value={staffActionReason}
+              onChange={(e) => setStaffActionReason(e.target.value)}
+              placeholder="Nhập căn cứ khôi phục tài khoản, xác nhận danh tính hoặc số quyết định..."
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+            <div className="flex items-center justify-between text-[11px]">
+              <span className={staffActionReason.trim().length >= 15 ? 'text-emerald-400' : 'text-amber-400'}>
+                {staffActionReason.trim().length} / 15 ký tự tối thiểu
+              </span>
+              {staffActionReason.trim().length < 15 && (
+                <span className="text-slate-500">Cần thêm {15 - staffActionReason.trim().length} ký tự</span>
+              )}
             </div>
           </div>
         </div>

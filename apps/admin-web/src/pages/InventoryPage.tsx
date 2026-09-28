@@ -35,6 +35,7 @@ const MOCK_INVENTORIES: SkuInventoryDisplay[] = [
     availableQuantity: 4,
     reservedQuantity: 2,
     totalQuantity: 6,
+    lowStockThreshold: 10,
     updatedAt: '2026-09-27T08:30:00Z',
   },
   {
@@ -44,6 +45,7 @@ const MOCK_INVENTORIES: SkuInventoryDisplay[] = [
     availableQuantity: 28,
     reservedQuantity: 4,
     totalQuantity: 32,
+    lowStockThreshold: 10,
     updatedAt: '2026-09-27T07:10:00Z',
   },
   {
@@ -53,6 +55,7 @@ const MOCK_INVENTORIES: SkuInventoryDisplay[] = [
     availableQuantity: 8,
     reservedQuantity: 3,
     totalQuantity: 11,
+    lowStockThreshold: 15,
     updatedAt: '2026-09-27T09:12:00Z',
   },
   {
@@ -62,6 +65,7 @@ const MOCK_INVENTORIES: SkuInventoryDisplay[] = [
     availableQuantity: 0,
     reservedQuantity: 5,
     totalQuantity: 5,
+    lowStockThreshold: 10,
     updatedAt: '2026-09-27T06:40:00Z',
   },
 ];
@@ -345,11 +349,11 @@ export const InventoryPage: React.FC = () => {
             <div className="flex items-center gap-4 text-xs">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                <span className="text-slate-400">Normal Stock (&gt;10 units)</span>
+                <span className="text-slate-400">Normal Stock (&gt; Ngưỡng an toàn)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-slate-400">Low Stock Alert (&lt;10 units)</span>
+                <span className="text-slate-400">Low Stock Alert (&le; Ngưỡng an toàn)</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-rose-400" />
@@ -378,14 +382,16 @@ export const InventoryPage: React.FC = () => {
                     <th className="py-3 px-4">Available Stock</th>
                     <th className="py-3 px-4">Reserved Stock</th>
                     <th className="py-3 px-4">Total Stock</th>
+                    <th className="py-3 px-4">Ngưỡng tối thiểu</th>
                     <th className="py-3 px-4">Stock Status</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/80">
                   {filteredItems.map((item) => {
-                    const isLow = item.availableQuantity > 0 && item.availableQuantity < 10;
-                    const isOut = item.availableQuantity === 0;
+                    const threshold = item.lowStockThreshold ?? 10;
+                    const isOut = item.availableQuantity <= 0;
+                    const isLow = !isOut && item.availableQuantity <= threshold;
 
                     return (
                       <tr
@@ -414,6 +420,11 @@ export const InventoryPage: React.FC = () => {
                         <td className="py-3 px-4">
                           <span className="font-mono text-xs text-slate-300 font-semibold">
                             {item.totalQuantity} units
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-mono text-xs text-slate-300 font-semibold">
+                            {threshold} units
                           </span>
                         </td>
                         <td className="py-3 px-4">
@@ -591,23 +602,29 @@ export const InventoryPage: React.FC = () => {
         {selectedSku && (
           <div className="space-y-6">
             {/* Quick Balance Breakdown */}
-            <div className="grid grid-cols-3 gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800 text-center">
               <div>
                 <p className="text-[11px] text-slate-500 uppercase font-semibold">Tồn khả dụng</p>
                 <p className="text-xl font-mono font-extrabold text-emerald-400 mt-1">
                   {selectedSku.availableQuantity}
                 </p>
               </div>
-              <div className="border-x border-slate-800">
+              <div className="border-l sm:border-x border-slate-800">
                 <p className="text-[11px] text-slate-500 uppercase font-semibold">Đang giữ chỗ</p>
                 <p className="text-xl font-mono font-extrabold text-amber-400 mt-1">
                   {selectedSku.reservedQuantity}
                 </p>
               </div>
-              <div>
+              <div className="border-t sm:border-t-0 sm:border-r border-slate-800 pt-2 sm:pt-0">
                 <p className="text-[11px] text-slate-500 uppercase font-semibold">Tồn thực tế (On-hand)</p>
                 <p className="text-xl font-mono font-extrabold text-white mt-1">
                   {selectedSku.totalQuantity}
+                </p>
+              </div>
+              <div className="border-t sm:border-t-0 border-slate-800 pt-2 sm:pt-0">
+                <p className="text-[11px] text-slate-500 uppercase font-semibold">Ngưỡng an toàn</p>
+                <p className="text-xl font-mono font-extrabold text-indigo-400 mt-1">
+                  {selectedSku.lowStockThreshold ?? 10}
                 </p>
               </div>
             </div>
@@ -713,9 +730,9 @@ export const InventoryPage: React.FC = () => {
               <span className="font-mono font-bold text-indigo-400">{selectedSku?.skuCode}</span>
             </div>
             
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/60 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/60 text-center">
               <div className="p-2 rounded bg-slate-900/50">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn thực tế hiện tại</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn thực tế</p>
                 <p className="text-sm font-mono font-bold text-white mt-0.5">{currentOnHand}</p>
               </div>
               <div className="p-2 rounded bg-slate-900/50">
@@ -723,8 +740,12 @@ export const InventoryPage: React.FC = () => {
                 <p className="text-sm font-mono font-bold text-amber-400 mt-0.5">{currentReserved}</p>
               </div>
               <div className="p-2 rounded bg-slate-900/50">
-                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn khả dụng hiện tại</p>
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Tồn khả dụng</p>
                 <p className="text-sm font-mono font-bold text-emerald-400 mt-0.5">{currentAvailable}</p>
+              </div>
+              <div className="p-2 rounded bg-slate-900/50">
+                <p className="text-[10px] text-slate-400 uppercase font-semibold">Ngưỡng an toàn</p>
+                <p className="text-sm font-mono font-bold text-indigo-400 mt-0.5">{selectedSku?.lowStockThreshold ?? 10}</p>
               </div>
             </div>
 
