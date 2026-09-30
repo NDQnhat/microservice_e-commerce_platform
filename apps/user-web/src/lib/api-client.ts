@@ -8,6 +8,7 @@ import {
   Order,
   Cart,
   PaymentCallbackPayload,
+  PaymentTransaction,
   ProductFilterParams,
   PaginatedResult,
 } from '@/types';
@@ -38,6 +39,46 @@ let liveCart: Cart = {
 };
 const processedPaymentSuccessOrders = new Set<string>(['ord-2026-001', 'ord-2026-002']);
 const processedIdempotencyKeys = new Map<string, Order>();
+const livePaymentTransactions = new Map<string, PaymentTransaction>();
+const registeredEmails = new Set<string>(['demo@example.com', 'admin@example.com', 'customer@ecommerce.local']);
+
+let currentMockState = true;
+type MockListener = (active: boolean) => void;
+const mockListeners = new Set<MockListener>();
+
+export function isMockModeActive(): boolean {
+  return currentMockState;
+}
+
+export function subscribeMockMode(listener: MockListener): () => void {
+  mockListeners.add(listener);
+  listener(currentMockState);
+  return () => {
+    mockListeners.delete(listener);
+  };
+}
+
+export function setMockMode(active: boolean) {
+  if (currentMockState !== active) {
+    currentMockState = active;
+    mockListeners.forEach((l) => l(active));
+  }
+}
+
+export function getLiveCart(): Cart {
+  return liveCart;
+}
+
+export function resetLiveCart(): void {
+  liveCart = {
+    id: 'cart-demo-001',
+    userId: 'cust-demo-001',
+    items: [],
+    subtotal: 0,
+    currency: 'VND',
+  };
+}
+
 
 function generateCorrelationId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -56,6 +97,11 @@ export async function apiClient<T>(
 ): Promise<T> {
   const correlationId = generateCorrelationId();
   const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+
+  // Timeout config (10 seconds default)
+  const TIMEOUT_MS = 10_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -79,9 +125,12 @@ export async function apiClient<T>(
     const response = await fetch(fullUrl, {
       ...options,
       headers,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (response.ok) {
+      setMockMode(false);
       if (response.status === 204) {
         return {} as T;
       }
@@ -105,12 +154,22 @@ export async function apiClient<T>(
     }
     throw new ApiClientError(errorProblem);
   } catch (err: unknown) {
+    clearTimeout(timeoutId);
+
+    // Phân biệt timeout error với network error
+    if (err instanceof Error && err.name === 'AbortError') {
+      setMockMode(true);
+      console.warn(`[apiClient] Request timeout (${TIMEOUT_MS}ms) for: ${endpoint}. Falling back to mock.`);
+      return handleMockRequest<T>(endpoint, options, correlationId);
+    }
+
     // If it's already an ApiClientError from an actual 4xx/5xx response, rethrow
     if (err instanceof ApiClientError) {
       throw err;
     }
 
     // Otherwise, Network Error or Gateway not running -> Fallback to High-Fidelity Mock Handler
+    setMockMode(true);
     return handleMockRequest<T>(endpoint, options, correlationId);
   }
 }
@@ -141,6 +200,20 @@ function handleMockRequest<T>(
                 status: 400,
                 code: 'VALIDATION_ERROR',
                 detail: 'Email và mật khẩu không được để trống.',
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+          if (body.email?.toLowerCase() === 'locked@example.com') {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/authorization',
+                title: 'Account Locked',
+                status: 403,
+                code: 'AUTHORIZATION_FAILED',
+                detail: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ bộ phận hỗ trợ khách hàng.',
                 instance: endpoint,
                 timestamp: new Date().toISOString(),
                 correlationId,
@@ -194,6 +267,21 @@ function handleMockRequest<T>(
               })
             );
           }
+          if (registeredEmails.has(body.email?.toLowerCase())) {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/conflict',
+                title: 'Email Already Registered',
+                status: 409,
+                code: 'CONFLICT',
+                detail: `Email '${body.email}' đã được đăng ký. Vui lòng đăng nhập hoặc dùng email khác.`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+          registeredEmails.add(body.email.toLowerCase());
           const newUser: User = {
             id: 'cust-' + generateUUID().slice(0, 8),
             email: body.email,
@@ -304,6 +392,11 @@ function handleMockRequest<T>(
           const minPrice = Number(urlObj.searchParams.get('minPrice')) || 0;
           const maxPrice = Number(urlObj.searchParams.get('maxPrice')) || Infinity;
           const sortBy = urlObj.searchParams.get('sortBy');
+          const colorFilter = urlObj.searchParams.get('color');
+          const sizeFilter = urlObj.searchParams.get('size');
+          const inStockOnly = urlObj.searchParams.get('inStockOnly');
+          const page = Math.max(1, Number(urlObj.searchParams.get('page')) || 1);
+          const pageSize = Number(urlObj.searchParams.get('pageSize') || urlObj.searchParams.get('size')) || 12;
 
           if (q) {
             const queryLower = q.toLowerCase();
@@ -327,6 +420,22 @@ function handleMockRequest<T>(
               return effectivePrice >= minPrice && effectivePrice <= maxPrice;
             });
           }
+          if (colorFilter) {
+            filtered = filtered.filter((p) =>
+              p.skus.some((s) => s.attributes?.Color?.toLowerCase().includes(colorFilter.toLowerCase()))
+            );
+          }
+          if (sizeFilter) {
+            filtered = filtered.filter((p) =>
+              p.skus.some((s) => s.attributes?.Size?.toLowerCase() === sizeFilter.toLowerCase())
+            );
+          }
+          if (inStockOnly === 'true' || inStockOnly === '1') {
+            filtered = filtered.filter((p) =>
+              p.skus.some((s) => (s.inventory?.quantityAvailable ?? 0) > 0)
+            );
+          }
+
           if (sortBy === 'price-asc') {
             filtered.sort(
               (a, b) =>
@@ -339,21 +448,43 @@ function handleMockRequest<T>(
                 (b.skus[0]?.salePrice || b.skus[0]?.price || 0) -
                 (a.skus[0]?.salePrice || a.skus[0]?.price || 0)
             );
+          } else if (sortBy === 'newest') {
+            filtered.sort((a, b) => {
+              const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+              const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+              return dateB - dateA; // Mới nhất trước
+            });
+          } else if (sortBy === 'rating') {
+            filtered.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
           }
 
+          const total = filtered.length;
+          const totalPages = Math.max(1, Math.ceil(total / pageSize));
+          const pagedItems = filtered.slice((page - 1) * pageSize, page * pageSize);
+
           const result: PaginatedResult<Product> = {
-            items: filtered,
-            page: 1,
-            size: filtered.length,
-            total: filtered.length,
-            totalPages: 1,
+            items: pagedItems,
+            page,
+            size: pageSize,
+            total,
+            totalPages,
           };
           return resolve(result as T);
         }
 
+        // --- BUSINESS CONFIGURATIONS (FR-037, BR-019) ---
+        // GET /api/v1/configurations
+        if (endpoint.includes('/api/v1/configurations') && method === 'GET') {
+          return resolve({
+            free_shipping_threshold: 500000,
+            standard_shipping_fee: 30000,
+            reservation_timeout_minutes: 15,
+          } as T);
+        }
+
         // --- 4. CART (API-CART-001, 002, 003, BR-004) ---
-        // GET /api/v1/customers/:id/cart
-        if (endpoint.includes('/cart') && method === 'GET') {
+        // GET /api/v1/customers/:id/cart or /cart
+        if (endpoint.match(/\/cart$/) && method === 'GET') {
           return resolve(liveCart as T);
         }
 
@@ -389,7 +520,7 @@ function handleMockRequest<T>(
             );
           }
 
-          const maxAvailable = targetSku.inventory?.quantityAvailable ?? 10;
+          const maxAvailable = targetSku.inventory?.quantityAvailable ?? 0;
           const existingItem = liveCart.items.find((i) => i.skuId === skuId);
           const newQty = (existingItem?.quantity || 0) + quantity;
 
@@ -434,6 +565,76 @@ function handleMockRequest<T>(
           return resolve(liveCart as T);
         }
 
+        // PUT /api/v1/customers/:id/cart/items/:itemId
+        if (endpoint.match(/\/cart\/items\/[^/]+$/) && method === 'PUT') {
+          const itemId = endpoint.split('/').pop();
+          const target = liveCart.items.find((i) => i.id === itemId);
+          if (!target) {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/not-found',
+                title: 'Cart Item Not Found',
+                status: 404,
+                code: 'NOT_FOUND',
+                detail: `Không tìm thấy sản phẩm trong giỏ hàng: ${itemId}`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          const quantity = Number(body?.quantity);
+          if (quantity <= 0) {
+            liveCart.items = liveCart.items.filter((i) => i.id !== itemId);
+          } else {
+            let targetSku = null;
+            for (const prod of MOCK_PRODUCTS) {
+              const found = prod.skus.find((s) => s.id === target.skuId);
+              if (found) {
+                targetSku = found;
+                break;
+              }
+            }
+            const maxAvailable = targetSku?.inventory?.quantityAvailable ?? target.maxAvailableStock;
+            if (quantity > maxAvailable) {
+              return reject(
+                new ApiClientError({
+                  type: 'https://api.ecommerce.local/errors/insufficient-stock',
+                  title: 'Business Rule Violation - Exceeds Available Stock',
+                  status: 422,
+                  code: 'INSUFFICIENT_STOCK',
+                  detail: `Chỉ còn ${maxAvailable} sản phẩm khả dụng trong kho.`,
+                  instance: endpoint,
+                  timestamp: new Date().toISOString(),
+                  correlationId,
+                })
+              );
+            }
+
+            target.quantity = quantity;
+            target.totalPrice = quantity * target.unitPrice;
+          }
+
+          liveCart.subtotal = liveCart.items.reduce((acc, i) => acc + i.totalPrice, 0);
+          return resolve(liveCart as T);
+        }
+
+        // DELETE /api/v1/customers/:id/cart/items/:itemId
+        if (endpoint.match(/\/cart\/items\/[^/]+$/) && method === 'DELETE') {
+          const itemId = endpoint.split('/').pop();
+          liveCart.items = liveCart.items.filter((i) => i.id !== itemId);
+          liveCart.subtotal = liveCart.items.reduce((acc, i) => acc + i.totalPrice, 0);
+          return resolve(liveCart as T);
+        }
+
+        // DELETE /api/v1/customers/:id/cart
+        if (endpoint.match(/\/cart$/) && method === 'DELETE') {
+          liveCart.items = [];
+          liveCart.subtotal = 0;
+          return resolve(liveCart as T);
+        }
+
         // --- 5. CHECKOUT & ORDERS (API-ORD-001, FR-009, BR-009, BR-010, BR-017) ---
         // POST /api/v1/customers/:id/orders
         if (endpoint.match(/\/api\/v1\/customers\/[^/]+\/orders$/) && method === 'POST') {
@@ -465,8 +666,9 @@ function handleMockRequest<T>(
             );
           }
 
-          // Check if items in order are available
-          const orderItems = body?.items || liveCart.items;
+          // STT 1: Client sends ONLY { address_id, cart_id, payment_method }.
+          // Order Service reads items strictly from liveCart.
+          const orderItems = liveCart.items;
           if (!orderItems || orderItems.length === 0) {
             return reject(
               new ApiClientError({
@@ -482,55 +684,73 @@ function handleMockRequest<T>(
             );
           }
 
-          // Simulate inventory contention for testing edge cases if quantity requested is impossible
+          // Authoritative catalog pricing & stock validation (BR-004 & STT 1)
+          const snapshottedItems = [];
+          let calculatedSubtotal = 0;
+
           for (const item of orderItems) {
-            if (item.quantity > 50) {
+            let targetSku = null;
+            let targetProd = null;
+            for (const p of MOCK_PRODUCTS) {
+              const s = p.skus.find((sku) => sku.id === item.skuId);
+              if (s) {
+                targetSku = s;
+                targetProd = p;
+                break;
+              }
+            }
+
+            const availableStock = targetSku?.inventory?.quantityAvailable ?? item.maxAvailableStock;
+            if (item.quantity > availableStock || item.quantity > 50) {
               return reject(
                 new ApiClientError({
                   type: 'https://api.ecommerce.local/errors/insufficient-stock',
                   title: 'Inventory Reservation Contention',
                   status: 422,
                   code: 'INSUFFICIENT_STOCK',
-                  detail: `Sản phẩm '${item.productName || item.skuCodeSnapshot}' không đủ tồn kho khả dụng để thực hiện đặt hàng.`,
+                  detail: `Sản phẩm '${targetProd?.name || item.productName}' không đủ tồn kho khả dụng để thực hiện đặt hàng.`,
                   instance: endpoint,
                   timestamp: new Date().toISOString(),
                   correlationId,
                 })
               );
             }
+
+            // Authoritative price from catalog (preventing client-side tampering)
+            const authoritativeUnitPrice = targetSku
+              ? (targetSku.salePrice || targetSku.price)
+              : item.unitPrice;
+            const lineTotal = authoritativeUnitPrice * item.quantity;
+            calculatedSubtotal += lineTotal;
+
+            snapshottedItems.push({
+              id: 'oi-' + generateUUID().slice(0, 8),
+              skuId: item.skuId,
+              skuCodeSnapshot: targetSku?.skuCode || item.skuCode,
+              productNameSnapshot: targetProd?.name || item.productName,
+              productImageSnapshot: targetProd?.mediaUrls?.[0] || item.productImage,
+              attributeSnapshot: targetSku?.attributes || item.attributes,
+              quantity: item.quantity,
+              unitPriceSnapshot: authoritativeUnitPrice,
+              lineTotal,
+            });
           }
 
-          const subtotal = orderItems.reduce(
-            (sum: number, i: any) => sum + (i.totalPrice || (i.unitPriceSnapshot || i.unitPrice) * i.quantity),
-            0
-          );
-          const shippingFee = subtotal >= 500000 ? 0 : 30000;
-          const grandTotal = subtotal + shippingFee;
+          const shippingFee = calculatedSubtotal >= 500000 ? 0 : 30000;
+          const grandTotal = calculatedSubtotal + shippingFee;
 
           const newOrder: Order = {
             id: 'ord-' + generateUUID().slice(0, 8),
             orderNumber: 'ORD-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000),
             customerId: 'cust-demo-001',
             status: 'RESERVED',
-            subtotalAmount: subtotal,
+            subtotalAmount: calculatedSubtotal,
             shippingFeeAmount: shippingFee,
             discountAmount: 0,
             grandTotalAmount: grandTotal,
             currency: 'VND',
-            // BR-017: Deep snapshot of shipping address
             shippingAddress: { ...address },
-            // BR-013 & FR-028: Snapshot of order items
-            items: orderItems.map((i: any) => ({
-              id: 'oi-' + generateUUID().slice(0, 8),
-              skuId: i.skuId,
-              skuCodeSnapshot: i.skuCode || i.skuCodeSnapshot,
-              productNameSnapshot: i.productName || i.productNameSnapshot,
-              productImageSnapshot: i.productImage || i.productImageSnapshot,
-              attributeSnapshot: i.attributes || i.attributeSnapshot,
-              quantity: i.quantity,
-              unitPriceSnapshot: i.unitPrice || i.unitPriceSnapshot,
-              lineTotal: (i.unitPrice || i.unitPriceSnapshot) * i.quantity,
-            })),
+            items: snapshottedItems,
             paymentMethod: body?.payment_method || 'MOCK_GATEWAY',
             idempotencyKey,
             createdAt: new Date().toISOString(),
@@ -560,14 +780,139 @@ function handleMockRequest<T>(
           return resolve(newOrder as T);
         }
 
-        // GET /api/v1/customers/:id/orders
-        if (endpoint.match(/\/api\/v1\/customers\/[^/]+\/orders$/) && method === 'GET') {
-          return resolve(liveOrders as T);
+        // POST /api/v1/payments/initiate (FIX-C1, Section 9 Step 1)
+        if (endpoint.includes('/api/v1/payments/initiate') && method === 'POST') {
+          const orderId = body?.order_id || body?.orderId;
+          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+
+          if (!order) {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/not-found',
+                title: 'Order Not Found',
+                status: 404,
+                code: 'NOT_FOUND',
+                detail: `Không tìm thấy đơn hàng: ${orderId}`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          if (order.status !== 'RESERVED') {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/invalid-state',
+                title: 'Invalid State For Payment Initiation',
+                status: 422,
+                code: 'INVALID_STATE',
+                detail: `Không thể khởi tạo thanh toán cho đơn hàng ở trạng thái '${order.status}'. Chỉ đơn hàng RESERVED mới được phép khởi tạo thanh toán.`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          const txn: PaymentTransaction = {
+            id: 'txn-' + generateUUID().slice(0, 8),
+            orderId: order.id,
+            status: 'INITIATED',
+            amount: body?.amount ?? order.grandTotalAmount,
+            createdAt: new Date().toISOString(),
+            attemptedAt: new Date().toISOString(),
+          };
+          livePaymentTransactions.set(txn.id, txn);
+          return resolve(txn as T);
+        }
+
+        // POST /api/v1/customers/:id/orders/:orderId/expire (ORD-T04, EXPIRED, STT 8)
+        if (endpoint.includes('/expire') && method === 'POST') {
+          const parts = endpoint.split('/');
+          const customersIdx = parts.indexOf('customers');
+          const requestingCustomerId = customersIdx !== -1 ? parts[customersIdx + 1] : undefined;
+          const orderId = parts[parts.indexOf('orders') + 1];
+          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+
+          if (!order) {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/not-found',
+                title: 'Order Not Found',
+                status: 404,
+                code: 'NOT_FOUND',
+                detail: `Không tìm thấy đơn hàng: ${orderId}`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          // Ownership check (FIX-H3)
+          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/authorization',
+                title: 'Authorization Failed',
+                status: 403,
+                code: 'AUTHORIZATION_FAILED',
+                detail: 'Bạn không có quyền thao tác trên đơn hàng này.',
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          if (order.status === 'RESERVED') {
+            const prevStatus = order.status;
+            order.status = 'EXPIRED';
+            order.timeline?.push({
+              id: 'tl-' + generateUUID().slice(0, 8),
+              orderId: order.id,
+              fromStatus: prevStatus,
+              toStatus: 'EXPIRED',
+              actorType: 'SYSTEM',
+              note: 'Đơn hàng đã hết hạn giữ chỗ (EXPIRED). Tồn kho đã được giải phóng theo quy tắc BR-003.',
+              occurredAt: new Date().toISOString(),
+            });
+          }
+
+          return resolve(order as T);
+        }
+
+        // GET /api/v1/customers/:id/orders (FIX-M10: Server-side pagination)
+        if (endpoint.match(/\/api\/v1\/customers\/[^/]+\/orders(?:\?.*)?$/) && method === 'GET') {
+          const urlObj = new URL('http://dummy.com' + endpoint.split('?')[0] + (endpoint.includes('?') ? '?' + endpoint.split('?')[1] : ''));
+          const page = Math.max(1, Number(urlObj.searchParams.get('page')) || 1);
+          const pageSize = Number(urlObj.searchParams.get('pageSize')) || 10;
+          const statusFilter = urlObj.searchParams.get('status');
+          const searchFilter = urlObj.searchParams.get('search');
+
+          let filtered = [...liveOrders];
+          if (statusFilter && statusFilter !== 'ALL') {
+            filtered = filtered.filter(o => o.status === statusFilter);
+          }
+          if (searchFilter && searchFilter.trim()) {
+            const q = searchFilter.trim().toLowerCase();
+            filtered = filtered.filter(o => o.orderNumber.toLowerCase().includes(q));
+          }
+
+          const total = filtered.length;
+          const totalPages = Math.max(1, Math.ceil(total / pageSize));
+          const items = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+          return resolve({ items, page, size: pageSize, total, totalPages } as T);
         }
 
         // GET /api/v1/customers/:id/orders/:orderId
         if (endpoint.match(/\/api\/v1\/customers\/[^/]+\/orders\/[^/]+$/) && method === 'GET') {
-          const orderId = endpoint.split('/').pop();
+          const parts = endpoint.split('/');
+          const customersIdx = parts.indexOf('customers');
+          const requestingCustomerId = parts[customersIdx + 1];
+          const orderId = parts.pop();
           const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
           if (!order) {
             return reject(
@@ -583,12 +928,31 @@ function handleMockRequest<T>(
               })
             );
           }
+
+          // Ownership check (FIX-H3)
+          if (order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/authorization',
+                title: 'Authorization Failed',
+                status: 403,
+                code: 'AUTHORIZATION_FAILED',
+                detail: 'Bạn không có quyền xem đơn hàng này.',
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
           return resolve(order as T);
         }
 
         // POST /api/v1/customers/:id/orders/:orderId/cancel (FR-012, BR-001, BR-006, BR-007)
         if (endpoint.includes('/cancel') && method === 'POST') {
           const parts = endpoint.split('/');
+          const customersIdx = parts.indexOf('customers');
+          const requestingCustomerId = customersIdx !== -1 ? parts[customersIdx + 1] : undefined;
           const orderId = parts[parts.indexOf('orders') + 1];
           const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
 
@@ -600,6 +964,22 @@ function handleMockRequest<T>(
                 status: 404,
                 code: 'NOT_FOUND',
                 detail: `Không tìm thấy đơn hàng để hủy.`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          // Ownership check (FIX-H3)
+          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/authorization',
+                title: 'Authorization Failed',
+                status: 403,
+                code: 'AUTHORIZATION_FAILED',
+                detail: 'Bạn không có quyền thao tác trên đơn hàng này.',
                 instance: endpoint,
                 timestamp: new Date().toISOString(),
                 correlationId,
@@ -684,6 +1064,24 @@ function handleMockRequest<T>(
                 status: 422,
                 code: 'DUPLICATE_PAYMENT',
                 detail: `Đơn hàng '${order.orderNumber}' đã được thanh toán thành công trước đó (BR-002). Giao dịch trùng lặp bị từ chối để chống thu phí kép.`,
+                instance: endpoint,
+                timestamp: new Date().toISOString(),
+                correlationId,
+              })
+            );
+          }
+
+          // Late/Stale callback check (FR-010 Step 5)
+          const terminalStates = ['EXPIRED', 'CANCELLED', 'PAYMENT_FAILED'];
+          if (payload.result === 'SUCCESS' && terminalStates.includes(order.status)) {
+            // Do NOT change order status. Record exception.
+            return reject(
+              new ApiClientError({
+                type: 'https://api.ecommerce.local/errors/late-callback',
+                title: 'Late or Stale Payment Callback',
+                status: 422,
+                code: 'LATE_OR_STALE_PAYMENT_CALLBACK',
+                detail: `Callback đến quá muộn: đơn hàng '${order.orderNumber}' đang ở trạng thái ${order.status}. Một exception_record đã được ghi nhận để admin xử lý.`,
                 instance: endpoint,
                 timestamp: new Date().toISOString(),
                 correlationId,

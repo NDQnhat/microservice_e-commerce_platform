@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { apiClient, ApiClientError } from '@/lib/api-client';
-import { PaymentCallbackPayload } from '@/types';
+import { PaymentCallbackPayload, Order } from '@/types';
 
 describe('Payment Callback & BR-002 Duplicate Callback Idempotency', () => {
   it('processes payment callback SUCCESS successfully and transitions to PAID', async () => {
@@ -44,5 +44,14 @@ describe('Payment Callback & BR-002 Duplicate Callback Idempotency', () => {
         body: JSON.stringify(duplicatePayload),
       })
     ).rejects.toThrow();
+  });
+
+  it('expires pending reservation on 15-minute countdown timeout per BR-003 and ORD-T04', async () => {
+    const res = await apiClient<Order>(
+      '/api/v1/customers/cust-demo-001/orders/ord-2026-003/expire',
+      { method: 'POST' }
+    );
+    expect(res.id).toBe('ord-2026-003');
+    expect(res.status).toBe('EXPIRED');
   });
 });

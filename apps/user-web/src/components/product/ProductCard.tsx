@@ -27,19 +27,22 @@ export function ProductCard({ product }: ProductCardProps) {
   const isOutOfStock = availableStock <= 0;
   const isLowStock = availableStock > 0 && availableStock <= 3;
 
-  const handleQuickAdd = (e: React.MouseEvent) => {
+  const handleQuickAdd = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isOutOfStock) return;
 
     setIsAdding(true);
-    const res = addItem(product, primarySku, 1);
-    if (res.success) {
-      showSuccess('Đã thêm vào giỏ hàng', `${product.name} (${primarySku.skuCode})`);
-    } else if (res.message) {
-      showWarning('Không thể thêm', res.message);
+    try {
+      const res = await addItem(product, primarySku, 1);
+      if (res.success) {
+        showSuccess('Đã thêm vào giỏ hàng', `${product.name} (${primarySku.skuCode})`);
+      } else if (res.message) {
+        showWarning('Không thể thêm', res.message);
+      }
+    } finally {
+      setTimeout(() => setIsAdding(false), 500);
     }
-    setTimeout(() => setIsAdding(false), 500);
   };
 
   const toggleWishlist = (e: React.MouseEvent) => {

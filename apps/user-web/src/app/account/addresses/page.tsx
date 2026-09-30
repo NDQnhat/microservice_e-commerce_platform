@@ -31,6 +31,7 @@ export default function CustomerAddressesPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState<CustomerAddress | null>(null);
+  const [deletingAddressId, setDeletingAddressId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form fields
@@ -42,6 +43,7 @@ export default function CustomerAddressesPage() {
   const [district, setDistrict] = useState('');
   const [city, setCity] = useState('');
   const [isDefault, setIsDefault] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const openAddModal = () => {
     setEditingAddress(null);
@@ -53,6 +55,7 @@ export default function CustomerAddressesPage() {
     setDistrict('');
     setCity('');
     setIsDefault(addresses.length === 0);
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
@@ -66,35 +69,71 @@ export default function CustomerAddressesPage() {
     setDistrict(addr.district);
     setCity(addr.city);
     setIsDefault(addr.isDefault);
+    setFormErrors({});
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const errors: Record<string, string> = {};
+    const trimmedName = recipientName.trim();
+    if (!trimmedName || trimmedName.length < 2 || trimmedName.length > 100) {
+      errors.recipientName = 'Họ tên người nhận phải từ 2 đến 100 ký tự';
+    }
+
+    const vnPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
+    const trimmedPhone = phone.trim();
+    if (!vnPhoneRegex.test(trimmedPhone)) {
+      errors.phone = 'Số điện thoại di động Việt Nam không đúng định dạng (VD: 0912345678)';
+    }
+
+    const trimmedLine1 = line1.trim();
+    if (!trimmedLine1 || trimmedLine1.length < 5) {
+      errors.line1 = 'Địa chỉ chi tiết tối thiểu 5 ký tự';
+    }
+
+    const trimmedDistrict = district.trim();
+    if (!trimmedDistrict) {
+      errors.district = 'Vui lòng nhập quận / huyện';
+    }
+
+    const trimmedCity = city.trim();
+    if (!trimmedCity) {
+      errors.city = 'Vui lòng nhập tỉnh / thành phố';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      showError('Thông tin địa chỉ không hợp lệ', Object.values(errors)[0]);
+      return;
+    }
+
+    setFormErrors({});
     setIsSubmitting(true);
 
     try {
       if (editingAddress) {
         await updateAddress(editingAddress.id, {
-          recipientName,
-          phone,
-          line1,
-          line2: line2 || undefined,
-          ward: ward || 'Phường 1',
-          district,
-          city,
+          recipientName: trimmedName,
+          phone: trimmedPhone,
+          line1: trimmedLine1,
+          line2: line2.trim() || undefined,
+          ward: ward.trim() || '',
+          district: trimmedDistrict,
+          city: trimmedCity,
           isDefault,
         });
         showSuccess('Cập nhật địa chỉ thành công');
       } else {
         await addAddress({
-          recipientName,
-          phone,
-          line1,
-          line2: line2 || undefined,
-          ward: ward || 'Phường 1',
-          district,
-          city,
+          recipientName: trimmedName,
+          phone: trimmedPhone,
+          line1: trimmedLine1,
+          line2: line2.trim() || undefined,
+          ward: ward.trim() || '',
+          district: trimmedDistrict,
+          city: trimmedCity,
           isDefault,
         });
         showSuccess('Thêm địa chỉ giao hàng thành công');
@@ -107,14 +146,19 @@ export default function CustomerAddressesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa địa chỉ này?')) {
-      try {
-        await deleteAddress(id);
-        showSuccess('Đã xóa địa chỉ thành công');
-      } catch (err) {
-        showError('Không thể xóa địa chỉ', err);
-      }
+  const handleDelete = (id: string) => {
+    setDeletingAddressId(id);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingAddressId) return;
+    try {
+      await deleteAddress(deletingAddressId);
+      showSuccess('Đã xóa địa chỉ thành công');
+    } catch (err) {
+      showError('Không thể xóa địa chỉ', err);
+    } finally {
+      setDeletingAddressId(null);
     }
   };
 
@@ -267,23 +311,35 @@ export default function CustomerAddressesPage() {
                   <label className="text-xs font-semibold text-zinc-700 block mb-1">Họ tên người nhận *</label>
                   <input
                     type="text"
-                    required
                     value={recipientName}
                     onChange={(e) => setRecipientName(e.target.value)}
-                    placeholder="Nguyễn Văn A"
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Nguyễn Văn An"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                      formErrors.recipientName
+                        ? 'border-rose-500 bg-rose-50/20'
+                        : 'border-zinc-200 focus:border-zinc-900'
+                    }`}
                   />
+                  {formErrors.recipientName && (
+                    <p className="text-[11px] text-rose-600 mt-1">{formErrors.recipientName}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 block mb-1">Số điện thoại *</label>
+                  <label className="text-xs font-semibold text-zinc-700 block mb-1">Số điện thoại di động *</label>
                   <input
                     type="tel"
-                    required
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="0912345678"
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                      formErrors.phone
+                        ? 'border-rose-500 bg-rose-50/20'
+                        : 'border-zinc-200 focus:border-zinc-900'
+                    }`}
                   />
+                  {formErrors.phone && (
+                    <p className="text-[11px] text-rose-600 mt-1">{formErrors.phone}</p>
+                  )}
                 </div>
               </div>
 
@@ -291,12 +347,18 @@ export default function CustomerAddressesPage() {
                 <label className="text-xs font-semibold text-zinc-700 block mb-1">Địa chỉ chi tiết (Số nhà, tên đường) *</label>
                 <input
                   type="text"
-                  required
                   value={line1}
                   onChange={(e) => setLine1(e.target.value)}
                   placeholder="Số 45 Đường Lê Duẩn"
-                  className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                  className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                    formErrors.line1
+                      ? 'border-rose-500 bg-rose-50/20'
+                      : 'border-zinc-200 focus:border-zinc-900'
+                  }`}
                 />
+                {formErrors.line1 && (
+                  <p className="text-[11px] text-rose-600 mt-1">{formErrors.line1}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -314,23 +376,35 @@ export default function CustomerAddressesPage() {
                   <label className="text-xs font-semibold text-zinc-700 block mb-1">Quận / Huyện *</label>
                   <input
                     type="text"
-                    required
                     value={district}
                     onChange={(e) => setDistrict(e.target.value)}
                     placeholder="Quận 1"
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                      formErrors.district
+                        ? 'border-rose-500 bg-rose-50/20'
+                        : 'border-zinc-200 focus:border-zinc-900'
+                    }`}
                   />
+                  {formErrors.district && (
+                    <p className="text-[11px] text-rose-600 mt-1">{formErrors.district}</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-zinc-700 block mb-1">Tỉnh / Thành phố *</label>
                   <input
                     type="text"
-                    required
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="TP. Hồ Chí Minh"
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                      formErrors.city
+                        ? 'border-rose-500 bg-rose-50/20'
+                        : 'border-zinc-200 focus:border-zinc-900'
+                    }`}
                   />
+                  {formErrors.city && (
+                    <p className="text-[11px] text-rose-600 mt-1">{formErrors.city}</p>
+                  )}
                 </div>
               </div>
 
@@ -364,6 +438,37 @@ export default function CustomerAddressesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Address Confirmation Modal (FIX-M11) */}
+      {deletingAddressId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <h3 className="text-base font-bold text-zinc-900">Xóa địa chỉ giao hàng</h3>
+            </div>
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Bạn có chắc chắn muốn xóa địa chỉ này? Thao tác này không thể hoàn tác.
+            </p>
+            <div className="pt-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingAddressId(null)}
+                className="px-4 py-2 rounded-xl border border-zinc-200 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition"
+              >
+                Xác nhận xóa
+              </button>
+            </div>
           </div>
         </div>
       )}

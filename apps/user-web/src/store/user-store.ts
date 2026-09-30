@@ -26,17 +26,10 @@ interface UserState {
 export const useUserStore = create<UserState>()(
   persist(
     (set, get) => ({
-      user: {
-        id: 'cust-demo-001',
-        email: 'customer@ecommerce.local',
-        fullName: 'Nguyễn Văn An',
-        phone: '0987654321',
-        status: 'ACTIVE',
-        roles: ['CUSTOMER'],
-      },
-      accessToken: 'demo-jwt-token-active-session',
-      isAuthenticated: true,
-      addresses: [...MOCK_USER_ADDRESSES],
+      user: null,
+      accessToken: null,
+      isAuthenticated: false,
+      addresses: [],
       isHydrated: false,
 
       setHydrated: () => set({ isHydrated: true }),

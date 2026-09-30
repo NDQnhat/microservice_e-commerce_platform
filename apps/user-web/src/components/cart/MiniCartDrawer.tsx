@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 
 export function MiniCartDrawer() {
   const router = useRouter();
-  const { items, itemCount, subtotal, isDrawerOpen, closeDrawer } = useCartStore();
+  const { items, itemCount, subtotal, isDrawerOpen, closeDrawer, freeShippingThreshold } = useCartStore();
 
   // Close on Escape key press
   useEffect(() => {
@@ -28,8 +28,9 @@ export function MiniCartDrawer() {
     };
   }, [isDrawerOpen, closeDrawer]);
 
-  const amountNeeded = Math.max(0, FREE_SHIPPING_THRESHOLD - subtotal);
-  const freeShippingProgress = Math.min(100, Math.round((subtotal / FREE_SHIPPING_THRESHOLD) * 100));
+  const threshold = freeShippingThreshold || 500000;
+  const amountNeeded = Math.max(0, threshold - subtotal);
+  const freeShippingProgress = Math.min(100, Math.round((subtotal / threshold) * 100));
 
   return (
     <>

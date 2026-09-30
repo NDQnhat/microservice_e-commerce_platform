@@ -15,7 +15,7 @@ export interface User {
   email: string;
   fullName: string;
   phone?: string;
-  status: 'ACTIVE' | 'SUSPENDED';
+  status: 'ACTIVE' | 'LOCKED' | 'SUSPENDED';
   roles: string[];
 }
 
@@ -170,6 +170,7 @@ export interface PaymentTransaction {
   amount: number;
   status: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'TIMEOUT';
   createdAt: string;
+  attemptedAt?: string;
 }
 
 export interface PaymentCallbackPayload {
@@ -199,3 +200,21 @@ export interface ProductFilterParams {
   page?: number;
   pageSize?: number;
 }
+
+export interface BusinessConfiguration {
+  free_shipping_threshold: number;
+  standard_shipping_fee: number;
+  reservation_timeout_minutes: number;
+}
+
+export interface OrderNotification {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  type: 'OrderCreated' | 'PaymentSucceeded' | 'OrderShipped' | 'OrderCancelled' | 'OrderExpired';
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+}
+

@@ -11,13 +11,16 @@ import * as apiClientModule from '@/lib/api-client';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
   }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
 describe('Checkout Flow & Idempotency Key Invariants', () => {
-  beforeEach(() => {
-    useCartStore.getState().clearCart();
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    await useCartStore.getState().clearCart();
     useUserStore.setState({
       user: {
         id: 'cust-demo-001',
@@ -31,9 +34,9 @@ describe('Checkout Flow & Idempotency Key Invariants', () => {
     });
   });
 
-  it('renders address selection and displays BR-017 Address Snapshot notice', () => {
+  it('renders address selection and displays BR-017 Address Snapshot notice', async () => {
     // Add item to cart so checkout is not empty
-    useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
+    await useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
 
     render(<CheckoutPage />);
 
@@ -43,7 +46,7 @@ describe('Checkout Flow & Idempotency Key Invariants', () => {
   });
 
   it('sends Idempotency-Key header on order creation to prevent double charge per BR-010', async () => {
-    useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
+    await useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
 
     const apiClientSpy = vi.spyOn(apiClientModule, 'apiClient');
 
@@ -68,8 +71,85 @@ describe('Checkout Flow & Idempotency Key Invariants', () => {
     expect(options.headers['Idempotency-Key'].length).toBeGreaterThan(10);
   });
 
+  it('eliminates Client-side Price Tampering: order body contains ONLY address_id, cart_id, payment_method', async () => {
+    await useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
+
+    const apiClientSpy = vi.spyOn(apiClientModule, 'apiClient');
+
+    render(<CheckoutPage />);
+
+    const submitBtn = screen.getByText('Xác nhận Đặt hàng');
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(apiClientSpy).toHaveBeenCalled();
+    });
+
+    const callArgs = apiClientSpy.mock.calls[0];
+    const options = callArgs[1] as any;
+    const body = JSON.parse(options.body);
+
+    // Strictly check body keys
+    expect(body).toHaveProperty('address_id');
+    expect(body).toHaveProperty('cart_id');
+    expect(body).toHaveProperty('payment_method');
+    // MUST NOT send client items, prices or totals
+    expect(body.items).toBeUndefined();
+    expect(body.unitPrice).toBeUndefined();
+    expect(body.totalPrice).toBeUndefined();
+    expect(body.grandTotalAmount).toBeUndefined();
+  });
+
+  it('reuses the exact same Idempotency-Key when retrying order submission after failure (BR-010)', async () => {
+    await useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
+
+    let callCount = 0;
+    const capturedKeys: string[] = [];
+    const apiClientSpy = vi.spyOn(apiClientModule, 'apiClient').mockImplementation(async (url: string, opts: any) => {
+      if (url.includes('/orders') && opts?.method === 'POST') {
+        callCount++;
+        capturedKeys.push(opts.headers['Idempotency-Key']);
+        if (callCount === 1) {
+          throw new Error('Network timeout simulated');
+        }
+        return {
+          id: 'ord-retry-success',
+          status: 'RESERVED',
+          paymentMethod: 'MOCK_GATEWAY',
+          grandTotalAmount: 680000,
+        };
+      }
+      return {};
+    });
+
+    render(<CheckoutPage />);
+
+    const submitBtn = screen.getByRole('button', { name: /Xác nhận Đặt hàng/i });
+
+    // First attempt -> fails
+    fireEvent.click(submitBtn);
+    await waitFor(() => {
+      expect(screen.getByText('Network timeout simulated')).toBeInTheDocument();
+    });
+
+    // Wait until button is enabled again after first attempt
+    const retryBtn = await screen.findByRole('button', { name: /Xác nhận Đặt hàng/i });
+    expect(retryBtn).not.toBeDisabled();
+
+    // Second attempt (retry) -> same session
+    fireEvent.click(retryBtn);
+    await waitFor(() => {
+      expect(callCount).toBe(2);
+    });
+
+    // Both calls must use the EXACT SAME Idempotency-Key
+    expect(capturedKeys.length).toBe(2);
+    expect(capturedKeys[0]).toBeTruthy();
+    expect(capturedKeys[0]).toBe(capturedKeys[1]);
+  });
+
   it('displays reservation contention modal on HTTP 422 INSUFFICIENT_STOCK error', async () => {
-    useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
+    await useCartStore.getState().addItem(MOCK_PRODUCTS[0], MOCK_PRODUCTS[0].skus[0], 1);
 
     vi.spyOn(apiClientModule, 'apiClient').mockRejectedValueOnce(
       new apiClientModule.ApiClientError({

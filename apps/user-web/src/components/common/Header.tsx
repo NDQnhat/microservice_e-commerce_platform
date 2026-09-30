@@ -1,20 +1,91 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, Search, User as UserIcon, Menu, X, MapPin, ChevronDown, LogOut, Package } from 'lucide-react';
+import {
+  ShoppingBag,
+  Search,
+  User as UserIcon,
+  Menu,
+  X,
+  MapPin,
+  ChevronDown,
+  LogOut,
+  Package,
+  Bell,
+  CheckCircle,
+  Truck,
+  AlertCircle,
+  Clock,
+  Sparkles,
+} from 'lucide-react';
 import { useCartStore } from '@/store/cart-store';
 import { useUserStore } from '@/store/user-store';
+import { subscribeMockMode, isMockModeActive } from '@/lib/api-client';
+import { formatCurrency } from '@/lib/utils';
+import { OrderNotification } from '@/types';
+
+// Mock recent order status notifications (FR-013)
+const INITIAL_NOTIFICATIONS: OrderNotification[] = [
+  {
+    id: 'notif-1',
+    orderId: 'ord-2026-001',
+    orderNumber: 'ORD-20260928-8921',
+    type: 'OrderShipped',
+    title: 'Đơn hàng đang giao',
+    message: 'Đơn hàng #ORD-20260928-8921 đã được giao cho đơn vị vận chuyển GHN.',
+    timestamp: '10 phút trước',
+    read: false,
+  },
+  {
+    id: 'notif-2',
+    orderId: 'ord-2026-002',
+    orderNumber: 'ORD-20260930-1042',
+    type: 'PaymentSucceeded',
+    title: 'Thanh toán thành công',
+    message: 'Giao dịch thanh toán 710.000₫ cho đơn #ORD-20260930-1042 đã được xác nhận (PAID).',
+    timestamp: '1 giờ trước',
+    read: false,
+  },
+  {
+    id: 'notif-3',
+    orderId: 'ord-2026-003',
+    orderNumber: 'ORD-20260925-4102',
+    type: 'OrderCreated',
+    title: 'Khởi tạo đơn hàng',
+    message: 'Đơn hàng #ORD-20260925-4102 đã được tạo thành công và giữ tồn kho (RESERVED).',
+    timestamp: '1 ngày trước',
+    read: true,
+  },
+];
 
 export function Header() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMockMode, setIsMockMode] = useState(true);
+  const [isMock, setIsMock] = useState(false);
+  const [notifications, setNotifications] = useState<OrderNotification[]>(INITIAL_NOTIFICATIONS);
 
-  const { itemCount, openDrawer } = useCartStore();
+  const { itemCount, openDrawer, freeShippingThreshold } = useCartStore();
   const { user, isAuthenticated, logout } = useUserStore();
+
+  // STT 16: Subscribe to mock mode state
+  useEffect(() => {
+    return subscribeMockMode((active) => {
+      setIsMockMode(active);
+      setIsMock(active);
+    });
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const markAllAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,13 +96,37 @@ export function Header() {
     }
   };
 
+  const threshold = freeShippingThreshold || 500000;
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-zinc-200/80 transition-all">
-      {/* Top Banner Notice */}
-      <div className="bg-zinc-900 text-white text-xs py-2 px-4 text-center tracking-wide font-medium flex items-center justify-center gap-2">
-        <span>Miễn phí vận chuyển toàn quốc cho đơn hàng từ 500.000₫</span>
-        <span className="hidden md:inline text-zinc-400">|</span>
-        <span className="hidden md:inline text-zinc-300">Đổi trả linh hoạt trong 30 ngày</span>
+      {/* FIX-M7: Mock Mode Offline Banner */}
+      {isMock && (
+        <div className="w-full bg-amber-500 text-white text-center text-[11px] font-semibold py-1 px-4">
+          ⚡ Demo Mode — Đang chạy trên dữ liệu mô phỏng (Mock). Backend chưa kết nối.
+        </div>
+      )}
+      {/* Top Banner Notice with STT 12 Dynamic Freeship and STT 16 Mock Indicator */}
+      <div className="bg-zinc-900 text-white text-xs py-2 px-4 tracking-wide font-medium flex items-center justify-between">
+        <div className="hidden sm:block w-36" />
+        <div className="flex-1 text-center flex items-center justify-center gap-2">
+          <span>Miễn phí vận chuyển toàn quốc cho đơn hàng từ {formatCurrency(threshold)}</span>
+          <span className="hidden md:inline text-zinc-500">|</span>
+          <span className="hidden md:inline text-zinc-300">Đổi trả linh hoạt trong 30 ngày</span>
+        </div>
+
+        {/* STT 16: Sandbox Mock Mode Subtle Indicator */}
+        <div className="flex items-center gap-2">
+          {isMockMode && (
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono border border-amber-500/30"
+              title="Hệ thống đang hoạt động ở chế độ High-Fidelity Mock Handler (Sandbox Offline)"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>Sandbox Mock</span>
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -90,7 +185,7 @@ export function Header() {
           </nav>
 
           {/* Search bar & Actions */}
-          <div className="flex items-center gap-3 sm:gap-4 flex-1 max-w-md justify-end">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 max-w-md justify-end">
             <form onSubmit={handleSearchSubmit} className="relative hidden lg:block w-full max-w-xs">
               <input
                 type="text"
@@ -101,6 +196,97 @@ export function Header() {
               />
               <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-2.5" />
             </form>
+
+            {/* STT 18: Notification Bell Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setIsNotificationOpen(!isNotificationOpen);
+                  setIsUserMenuOpen(false);
+                }}
+                className="relative p-2.5 text-zinc-800 hover:text-zinc-900 rounded-full hover:bg-zinc-100 transition-colors"
+                aria-label={`Thông báo đơn hàng (${unreadCount} chưa đọc)`}
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-600 rounded-full animate-pulse" />
+                )}
+              </button>
+
+              {isNotificationOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-zinc-200/80 py-3 z-50 animate-in fade-in zoom-in-95">
+                  <div className="px-4 pb-2.5 border-b border-zinc-100 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Bell className="w-4 h-4 text-zinc-900" />
+                      <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wide">
+                        Thông báo đơn hàng (FR-013)
+                      </h4>
+                    </div>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={markAllAsRead}
+                        className="text-[10px] text-zinc-500 hover:text-zinc-900 font-medium"
+                      >
+                        Đánh dấu đã đọc
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto divide-y divide-zinc-100">
+                    {notifications.map((item) => (
+                      <Link
+                        key={item.id}
+                        href={`/account/orders/${item.orderId}`}
+                        onClick={() => setIsNotificationOpen(false)}
+                        className={`p-3.5 block transition hover:bg-zinc-50 ${
+                          !item.read ? 'bg-zinc-50/60' : ''
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="mt-0.5 shrink-0">
+                            {item.type === 'PaymentSucceeded' && (
+                              <CheckCircle className="w-4 h-4 text-emerald-600" />
+                            )}
+                            {item.type === 'OrderShipped' && (
+                              <Truck className="w-4 h-4 text-blue-600" />
+                            )}
+                            {item.type === 'OrderCreated' && (
+                              <Clock className="w-4 h-4 text-amber-500" />
+                            )}
+                            {item.type === 'OrderCancelled' && (
+                              <AlertCircle className="w-4 h-4 text-rose-500" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="text-xs font-bold text-zinc-900 truncate">
+                                {item.title}
+                              </p>
+                              <span className="text-[10px] text-zinc-400 shrink-0">
+                                {item.timestamp}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-600 mt-0.5 line-clamp-2 leading-relaxed">
+                              {item.message}
+                            </p>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 px-4 border-t border-zinc-100 text-center">
+                    <Link
+                      href="/account/orders"
+                      onClick={() => setIsNotificationOpen(false)}
+                      className="text-xs font-semibold text-zinc-900 hover:underline"
+                    >
+                      Xem toàn bộ lịch sử đơn hàng
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Cart Trigger */}
             <button
@@ -121,7 +307,10 @@ export function Header() {
               {isAuthenticated && user ? (
                 <div className="relative">
                   <button
-                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                    onClick={() => {
+                      setIsUserMenuOpen(!isUserMenuOpen);
+                      setIsNotificationOpen(false);
+                    }}
                     className="flex items-center gap-2 py-1.5 px-3 rounded-full hover:bg-zinc-100 border border-zinc-200 text-sm font-medium text-zinc-800 transition"
                   >
                     <div className="w-6 h-6 rounded-full bg-zinc-900 text-white flex items-center justify-center text-xs font-semibold">

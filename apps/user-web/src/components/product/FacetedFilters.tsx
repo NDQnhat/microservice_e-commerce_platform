@@ -38,13 +38,44 @@ export function FacetedFilters({
     });
   };
 
-  const handlePriceChange = (min?: number, max?: number) => {
+  const [localMin, setLocalMin] = React.useState<string>(filters.minPrice ? String(filters.minPrice) : '');
+  const [localMax, setLocalMax] = React.useState<string>(filters.maxPrice ? String(filters.maxPrice) : '');
+  const [priceError, setPriceError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setLocalMin(filters.minPrice ? String(filters.minPrice) : '');
+    setLocalMax(filters.maxPrice ? String(filters.maxPrice) : '');
+    setPriceError(null);
+  }, [filters.minPrice, filters.maxPrice]);
+
+  const handleApplyPrice = (minVal?: number, maxVal?: number) => {
+    let min = minVal !== undefined ? minVal : localMin ? Number(localMin) : undefined;
+    let max = maxVal !== undefined ? maxVal : localMax ? Number(localMax) : undefined;
+
+    if (min !== undefined && max !== undefined && min > max) {
+      // Auto-swap per STT 13
+      const temp = min;
+      min = max;
+      max = temp;
+      setLocalMin(String(min));
+      setLocalMax(String(max));
+      setPriceError('Giá "Từ" lớn hơn "Đến": Hệ thống đã tự động hoán đổi khoảng giá phù hợp.');
+    } else {
+      setPriceError(null);
+    }
+
     onFilterChange({
       ...filters,
       minPrice: min,
       maxPrice: max,
       page: 1,
     });
+  };
+
+  const handlePriceChange = (min?: number, max?: number) => {
+    setLocalMin(min !== undefined ? String(min) : '');
+    setLocalMax(max !== undefined ? String(max) : '');
+    handleApplyPrice(min, max);
   };
 
   const handleColorSelect = (color: string) => {
@@ -149,9 +180,26 @@ export function FacetedFilters({
         </div>
       </div>
 
-      {/* 2. Price Range */}
+      {/* 2. Price Range (STT 13: Constraint & Auto-swap) */}
       <div className="space-y-3 pt-3 border-t border-zinc-100">
-        <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Khoảng giá</h4>
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-bold text-zinc-900 uppercase tracking-wider">Khoảng giá</h4>
+          {(localMin || localMax) && (
+            <button
+              onClick={() => handleApplyPrice()}
+              className="text-[10px] font-bold text-zinc-900 hover:underline"
+            >
+              Áp dụng
+            </button>
+          )}
+        </div>
+
+        {priceError && (
+          <p className="text-[10px] text-amber-700 bg-amber-50 p-2 rounded-lg leading-tight">
+            {priceError}
+          </p>
+        )}
+
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
@@ -159,13 +207,9 @@ export function FacetedFilters({
               <input
                 type="number"
                 placeholder="0"
-                value={filters.minPrice || ''}
-                onChange={(e) =>
-                  handlePriceChange(
-                    e.target.value ? Number(e.target.value) : undefined,
-                    filters.maxPrice
-                  )
-                }
+                value={localMin}
+                onChange={(e) => setLocalMin(e.target.value)}
+                onBlur={() => handleApplyPrice()}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
               />
             </div>
@@ -174,13 +218,9 @@ export function FacetedFilters({
               <input
                 type="number"
                 placeholder="5,000,000"
-                value={filters.maxPrice || ''}
-                onChange={(e) =>
-                  handlePriceChange(
-                    filters.minPrice,
-                    e.target.value ? Number(e.target.value) : undefined
-                  )
-                }
+                value={localMax}
+                onChange={(e) => setLocalMax(e.target.value)}
+                onBlur={() => handleApplyPrice()}
                 className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
               />
             </div>

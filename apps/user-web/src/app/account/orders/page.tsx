@@ -4,11 +4,12 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Order, OrderStatus } from '@/types';
+import { Order, OrderStatus, PaginatedResult } from '@/types';
 import { useUserStore } from '@/store/user-store';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/common/EmptyState';
 import { OrderCardSkeleton } from '@/components/common/SkeletonLoader';
+import { Pagination } from '@/components/common/Pagination';
 import { Package, ChevronRight, Clock, CheckCircle2, Truck, XCircle, Search } from 'lucide-react';
 
 import { OrderStatusBadge } from '@/components/order/OrderStatusBadge';
@@ -20,22 +21,29 @@ const STATUS_TABS: { label: string; value: OrderStatus | 'ALL' }[] = [
   { label: 'Đang đóng gói', value: 'PACKING' },
   { label: 'Đang giao hàng', value: 'SHIPPED' },
   { label: 'Hoàn tất', value: 'COMPLETED' },
+  { label: 'Lỗi thanh toán', value: 'PAYMENT_FAILED' },
+  { label: 'Hết hạn', value: 'EXPIRED' },
   { label: 'Đã hủy', value: 'CANCELLED' },
 ];
 
 export default function CustomerOrdersPage() {
   const { user, isAuthenticated } = useUserStore();
   const [activeTab, setActiveTab] = useState<OrderStatus | 'ALL'>('ALL');
+  const [page, setPage] = useState(1);
   const [searchNumber, setSearchNumber] = useState('');
 
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ['customer-orders', user?.id],
+  const { data: ordersData, isLoading } = useQuery<PaginatedResult<Order>>({
+    queryKey: ['customer-orders', user?.id, activeTab, page],
     queryFn: () => {
       const customerId = user?.id || 'cust-demo-001';
-      return apiClient<Order[]>(`/api/v1/customers/${customerId}/orders`);
+      return apiClient<PaginatedResult<Order>>(
+        `/api/v1/customers/${customerId}/orders?status=${activeTab}&page=${page}&pageSize=10`
+      );
     },
     enabled: Boolean(user),
   });
+
+  const orders = ordersData?.items || [];
 
   if (!isAuthenticated || !user) {
     return (
@@ -50,13 +58,12 @@ export default function CustomerOrdersPage() {
     );
   }
 
-  // Filter orders by active status tab and search
+  // Filter orders by search
   const filteredOrders = orders.filter((o) => {
-    const matchesTab = activeTab === 'ALL' || o.status === activeTab;
-    const matchesSearch =
+    return (
       !searchNumber.trim() ||
-      o.orderNumber.toLowerCase().includes(searchNumber.toLowerCase());
-    return matchesTab && matchesSearch;
+      o.orderNumber.toLowerCase().includes(searchNumber.toLowerCase())
+    );
   });
 
   return (
@@ -90,7 +97,10 @@ export default function CustomerOrdersPage() {
           {STATUS_TABS.map((tab) => (
             <button
               key={tab.value}
-              onClick={() => setActiveTab(tab.value)}
+              onClick={() => {
+                setActiveTab(tab.value);
+                setPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
                 activeTab === tab.value
                   ? 'bg-zinc-900 text-white shadow-xs'
@@ -223,6 +233,16 @@ export default function CustomerOrdersPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {ordersData && ordersData.totalPages > 1 && (
+        <Pagination
+          currentPage={ordersData.page}
+          totalPages={ordersData.totalPages}
+          totalItems={ordersData.total}
+          pageSize={ordersData.size}
+          onPageChange={(newPage) => setPage(newPage)}
+        />
       )}
     </div>
   );

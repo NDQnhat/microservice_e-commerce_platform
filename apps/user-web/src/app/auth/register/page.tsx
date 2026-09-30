@@ -8,14 +8,21 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useUserStore } from '@/store/user-store';
 import { useToastStore } from '@/store/toast-store';
+import { ApiClientError } from '@/lib/api-client';
 import { User, Mail, Lock, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 
 const registerSchema = z
   .object({
     fullName: z.string().min(2, 'Họ và tên tối thiểu 2 ký tự'),
     email: z.string().email('Địa chỉ email không đúng định dạng'),
-    password: z.string().min(6, 'Mật khẩu tối thiểu 6 ký tự'),
-    confirmPassword: z.string().min(6, 'Vui lòng xác nhận mật khẩu'),
+    password: z
+      .string()
+      .min(8, 'Mật khẩu tối thiểu 8 ký tự')
+      .regex(/[A-Z]/, 'Mật khẩu phải chứa ít nhất 1 chữ in hoa')
+      .regex(/[a-z]/, 'Mật khẩu phải chứa ít nhất 1 chữ thường')
+      .regex(/[0-9]/, 'Mật khẩu phải chứa ít nhất 1 chữ số')
+      .regex(/[^A-Za-z0-9]/, 'Mật khẩu phải chứa ít nhất 1 ký tự đặc biệt (!@#$%^&*...)'),
+    confirmPassword: z.string().min(1, 'Vui lòng xác nhận mật khẩu'),
     agreeTerms: z.literal(true, {
       errorMap: () => ({ message: 'Bạn phải đồng ý với điều khoản sử dụng' }),
     }),
@@ -60,7 +67,11 @@ export default function RegisterPage() {
       showSuccess('Đăng ký thành công', 'Chào mừng bạn gia nhập cộng đồng mua sắm Atelier!');
       router.push(returnUrl);
     } catch (err) {
-      showError('Đăng ký thất bại', err);
+      if (err instanceof ApiClientError && err.problem.code === 'CONFLICT') {
+        showError('Email đã tồn tại', 'Địa chỉ email này đã được đăng ký. Vui lòng đăng nhập hoặc dùng email khác.');
+      } else {
+        showError('Đăng ký thất bại', err);
+      }
     } finally {
       setIsSubmitting(false);
     }

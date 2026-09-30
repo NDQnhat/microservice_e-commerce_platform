@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -15,23 +15,44 @@ import {
   ArrowRight,
   Info,
 } from 'lucide-react';
-import { useCartStore, FREE_SHIPPING_THRESHOLD } from '@/store/cart-store';
+import { useCartStore } from '@/store/cart-store';
 import { useUserStore } from '@/store/user-store';
 import { useToastStore } from '@/store/toast-store';
 import { apiClient, ApiClientError } from '@/lib/api-client';
-import { Order, CustomerAddress } from '@/types';
+import { Order, CustomerAddress, PaymentTransaction } from '@/types';
 import { formatCurrency, generateUUID } from '@/lib/utils';
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, subtotal, clearCart } = useCartStore();
+  const {
+    items,
+    subtotal,
+    cartId,
+    clearCart,
+    isHydrated,
+    loadCart,
+    freeShippingThreshold,
+    standardShippingFee,
+  } = useCartStore();
   const { user, isAuthenticated, addresses, addAddress } = useUserStore();
-  const { showError, showSuccess } = useToastStore();
+  const { showError, showSuccess, showWarning } = useToastStore();
+
+  // STT 2: checkoutSessionKey fixed for this checkout session and reused upon retry (BR-010, NFR-IDEMPOTENCY-001)
+  const [checkoutSessionKey] = useState(() => {
+    if (typeof window === 'undefined') return generateUUID();
+    const STORAGE_KEY = 'checkout_idempotency_key';
+    const existing = sessionStorage.getItem(STORAGE_KEY);
+    if (existing) return existing;
+    const newKey = generateUUID();
+    sessionStorage.setItem(STORAGE_KEY, newKey);
+    return newKey;
+  });
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<'MOCK_GATEWAY' | 'VNPAY' | 'COD'>('MOCK_GATEWAY');
+  const [paymentMethod, setPaymentMethod] = useState<'MOCK_GATEWAY' | 'VNPAY'>('MOCK_GATEWAY');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [stockContentionError, setStockContentionError] = useState<string | null>(null);
+  const [orderErrorMessage, setOrderErrorMessage] = useState<string | null>(null);
+  const [stockContentionError, setStockContentionError] = useState<{ code: string; detail: string } | null>(null);
 
   // Quick new address state
   const [showNewAddressForm, setShowNewAddressForm] = useState(false);
@@ -41,6 +62,25 @@ export default function CheckoutPage() {
   const [newWard, setNewWard] = useState('');
   const [newDistrict, setNewDistrict] = useState('');
   const [newCity, setNewCity] = useState('');
+  const [addressFormErrors, setAddressFormErrors] = useState<Record<string, string>>({});
+
+  const hasRedirectedRef = useRef(false);
+
+  // STT 15: Auto-redirect to cart if hydrated and cart is empty
+  useEffect(() => {
+    if (isHydrated && items.length === 0 && !hasRedirectedRef.current) {
+      hasRedirectedRef.current = true;
+      useToastStore.getState().showWarning(
+        'Giỏ hàng trống',
+        'Giỏ hàng của bạn đang trống, vui lòng chọn sản phẩm trước khi thanh toán.'
+      );
+      if (typeof router?.replace === 'function') {
+        router.replace('/cart');
+      } else if (typeof router?.push === 'function') {
+        router.push('/cart');
+      }
+    }
+  }, [isHydrated, items.length, router]);
 
   // Default address selection
   useEffect(() => {
@@ -50,27 +90,70 @@ export default function CheckoutPage() {
     }
   }, [addresses, selectedAddressId]);
 
-  const isFreeShipping = subtotal >= FREE_SHIPPING_THRESHOLD;
-  const shippingFee = isFreeShipping || items.length === 0 ? 0 : 30000;
+  // STT 12: Dynamic freeship and standard shipping fee calculation
+  const threshold = freeShippingThreshold || 500000;
+  const standardFee = standardShippingFee || 30000;
+  const isFreeShipping = subtotal >= threshold;
+  const shippingFee = isFreeShipping || items.length === 0 ? 0 : standardFee;
   const grandTotal = subtotal + shippingFee;
 
+  // STT 7: Validated address creation
   const handleCreateNewAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRecipientName || !newPhone || !newLine1 || !newDistrict || !newCity) {
+    const errors: Record<string, string> = {};
+
+    const trimmedName = newRecipientName.trim();
+    if (!trimmedName || trimmedName.length < 2 || trimmedName.length > 100) {
+      errors.recipientName = 'Họ tên người nhận phải từ 2 đến 100 ký tự';
+    }
+
+    const vnPhoneRegex = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
+    const trimmedPhone = newPhone.trim();
+    if (!vnPhoneRegex.test(trimmedPhone)) {
+      errors.phone = 'Số điện thoại di động Việt Nam không đúng định dạng (VD: 0912345678 hoặc +84912345678)';
+    }
+
+    const trimmedLine1 = newLine1.trim();
+    if (!trimmedLine1 || trimmedLine1.length < 5) {
+      errors.line1 = 'Địa chỉ chi tiết tối thiểu 5 ký tự';
+    }
+
+    const trimmedDistrict = newDistrict.trim();
+    if (!trimmedDistrict) {
+      errors.district = 'Vui lòng nhập quận / huyện';
+    }
+
+    const trimmedCity = newCity.trim();
+    if (!trimmedCity) {
+      errors.city = 'Vui lòng nhập tỉnh / thành phố';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setAddressFormErrors(errors);
+      showError('Thông tin địa chỉ không hợp lệ', Object.values(errors)[0]);
       return;
     }
+
+    setAddressFormErrors({});
+
     try {
       const created = await addAddress({
-        recipientName: newRecipientName,
-        phone: newPhone,
-        line1: newLine1,
-        ward: newWard || 'Phường 1',
-        district: newDistrict,
-        city: newCity,
+        recipientName: trimmedName,
+        phone: trimmedPhone,
+        line1: trimmedLine1,
+        ward: newWard.trim() || '',
+        district: trimmedDistrict,
+        city: trimmedCity,
         isDefault: addresses.length === 0,
       });
       setSelectedAddressId(created.id);
       setShowNewAddressForm(false);
+      setNewRecipientName('');
+      setNewPhone('');
+      setNewLine1('');
+      setNewWard('');
+      setNewDistrict('');
+      setNewCity('');
       showSuccess('Đã thêm địa chỉ giao hàng mới');
     } catch (err) {
       showError('Lỗi thêm địa chỉ', err);
@@ -121,6 +204,7 @@ export default function CheckoutPage() {
     );
   }
 
+  // STT 1 & STT 2: handlePlaceOrder without client-side price tampering
   const handlePlaceOrder = async () => {
     if (!selectedAddressId) {
       showError('Vui lòng chọn địa chỉ giao hàng');
@@ -129,44 +213,65 @@ export default function CheckoutPage() {
 
     setIsSubmitting(true);
     setStockContentionError(null);
-
-    // BẮT BUỘC sinh UUID Idempotency-Key (BR-010, NFR-IDEMPOTENCY-001)
-    const idempotencyKey = generateUUID();
+    setOrderErrorMessage(null);
 
     try {
+      // STT 1: Client sends ONLY address_id, cart_id, payment_method.
+      // Prices and items are calculated and snapshotted authoritatively by Order Service.
       const order = await apiClient<Order>(`/api/v1/customers/${user.id}/orders`, {
         method: 'POST',
         headers: {
-          'Idempotency-Key': idempotencyKey,
+          'Idempotency-Key': checkoutSessionKey,
         },
         body: JSON.stringify({
           address_id: selectedAddressId,
-          items: items.map((i) => ({
-            skuId: i.skuId,
-            skuCode: i.skuCode,
-            productName: i.productName,
-            productImage: i.productImage,
-            attributes: i.attributes,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-            totalPrice: i.totalPrice,
-          })),
+          cart_id: cartId || 'cart-demo-001',
           payment_method: paymentMethod,
         }),
       });
 
       // Clear client cart on order creation
-      clearCart();
+      await clearCart(user.id);
 
-      // Navigate to payment simulation screen
-      router.push(`/checkout/payment/${order.id}`);
+      // FIX-M1: Clear idempotency key from sessionStorage after success
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('checkout_idempotency_key');
+      }
+
+      // FIX-C1: Initiate payment automatically right after Order creation (Section 9 Step 1)
+      try {
+        await apiClient<PaymentTransaction>('/api/v1/payments/initiate', {
+          method: 'POST',
+          body: JSON.stringify({
+            order_id: order.id,
+            amount: order.grandTotalAmount,
+            currency: order.currency,
+            payment_method: paymentMethod,
+          }),
+        });
+      } catch {
+        // Non-blocking: nếu initiate fail, vẫn redirect để user thấy payment sandbox
+      }
+
+      // STT 6: Payment method branching
+      if (paymentMethod === 'VNPAY') {
+        showSuccess('Chuyển hướng VNPay', 'Đang chuyển hướng đến cổng thanh toán VNPay Sandbox...');
+        router.push(`/checkout/payment/${order.id}?gateway=vnpay`);
+      } else {
+        router.push(`/checkout/payment/${order.id}`);
+      }
     } catch (err: unknown) {
       if (err instanceof ApiClientError && err.problem.code === 'INSUFFICIENT_STOCK') {
-        // Atomic Reservation Contention
-        setStockContentionError(
-          err.problem.detail || 'Một hoặc nhiều sản phẩm trong giỏ hàng vừa hết hàng hoặc không đủ tồn kho khả dụng.'
-        );
+        // STT 4: Atomic Reservation Contention (422)
+        setStockContentionError({
+          code: err.problem.code,
+          detail: err.problem.detail || 'Một hoặc nhiều sản phẩm trong giỏ hàng vừa hết hàng hoặc không đủ tồn kho khả dụng.',
+        });
+        // Trigger cart reload to adjust or remove conflicting SKUs
+        await loadCart(user.id);
       } else {
+        const msg = err instanceof Error ? err.message : 'Không thể tạo đơn hàng';
+        setOrderErrorMessage(msg);
         showError('Không thể tạo đơn hàng', err);
       }
     } finally {
@@ -201,7 +306,7 @@ export default function CheckoutPage() {
                 className="text-xs font-semibold text-zinc-900 hover:text-zinc-600 flex items-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Thêm địa chỉ mới</span>
+                <span>{showNewAddressForm ? 'Đóng biểu mẫu' : 'Thêm địa chỉ mới'}</span>
               </button>
             </div>
 
@@ -247,44 +352,68 @@ export default function CheckoutPage() {
               </div>
             )}
 
-            {/* New Address Form (Toggleable) */}
+            {/* New Address Form (Toggleable with STT 7 validation) */}
             {showNewAddressForm && (
               <form onSubmit={handleCreateNewAddress} className="space-y-3 pt-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-zinc-700 block mb-1">Họ tên người nhận *</label>
+                    <label className="text-xs font-medium text-zinc-700 block mb-1">
+                      Họ tên người nhận *
+                    </label>
                     <input
                       type="text"
-                      required
                       value={newRecipientName}
                       onChange={(e) => setNewRecipientName(e.target.value)}
-                      placeholder="Nguyễn Văn A"
-                      className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      placeholder="Nguyễn Văn An"
+                      className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                        addressFormErrors.recipientName
+                          ? 'border-rose-500 focus:border-rose-600 bg-rose-50/20'
+                          : 'border-zinc-200 focus:border-zinc-900'
+                      }`}
                     />
+                    {addressFormErrors.recipientName && (
+                      <p className="text-[11px] text-rose-600 mt-1">{addressFormErrors.recipientName}</p>
+                    )}
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-zinc-700 block mb-1">Số điện thoại *</label>
+                    <label className="text-xs font-medium text-zinc-700 block mb-1">
+                      Số điện thoại di động *
+                    </label>
                     <input
                       type="tel"
-                      required
                       value={newPhone}
                       onChange={(e) => setNewPhone(e.target.value)}
                       placeholder="0912345678"
-                      className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                        addressFormErrors.phone
+                          ? 'border-rose-500 focus:border-rose-600 bg-rose-50/20'
+                          : 'border-zinc-200 focus:border-zinc-900'
+                      }`}
                     />
+                    {addressFormErrors.phone && (
+                      <p className="text-[11px] text-rose-600 mt-1">{addressFormErrors.phone}</p>
+                    )}
                   </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-zinc-700 block mb-1">Địa chỉ chi tiết (Số nhà, tên đường) *</label>
+                  <label className="text-xs font-medium text-zinc-700 block mb-1">
+                    Địa chỉ chi tiết (Số nhà, tên đường) *
+                  </label>
                   <input
                     type="text"
-                    required
                     value={newLine1}
                     onChange={(e) => setNewLine1(e.target.value)}
-                    placeholder="Số 123 Đường Nguyễn Huệ"
-                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    placeholder="Số 123 Đường Lê Lợi"
+                    className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                      addressFormErrors.line1
+                        ? 'border-rose-500 focus:border-rose-600 bg-rose-50/20'
+                        : 'border-zinc-200 focus:border-zinc-900'
+                    }`}
                   />
+                  {addressFormErrors.line1 && (
+                    <p className="text-[11px] text-rose-600 mt-1">{addressFormErrors.line1}</p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -302,23 +431,35 @@ export default function CheckoutPage() {
                     <label className="text-xs font-medium text-zinc-700 block mb-1">Quận / Huyện *</label>
                     <input
                       type="text"
-                      required
                       value={newDistrict}
                       onChange={(e) => setNewDistrict(e.target.value)}
                       placeholder="Quận 1"
-                      className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                        addressFormErrors.district
+                          ? 'border-rose-500 focus:border-rose-600 bg-rose-50/20'
+                          : 'border-zinc-200 focus:border-zinc-900'
+                      }`}
                     />
+                    {addressFormErrors.district && (
+                      <p className="text-[11px] text-rose-600 mt-1">{addressFormErrors.district}</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-xs font-medium text-zinc-700 block mb-1">Tỉnh / Thành phố *</label>
                     <input
                       type="text"
-                      required
                       value={newCity}
                       onChange={(e) => setNewCity(e.target.value)}
                       placeholder="Hồ Chí Minh"
-                      className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
+                      className={`w-full px-3 py-2 rounded-xl border text-xs text-zinc-900 focus:outline-none transition ${
+                        addressFormErrors.city
+                          ? 'border-rose-500 focus:border-rose-600 bg-rose-50/20'
+                          : 'border-zinc-200 focus:border-zinc-900'
+                      }`}
                     />
+                    {addressFormErrors.city && (
+                      <p className="text-[11px] text-rose-600 mt-1">{addressFormErrors.city}</p>
+                    )}
                   </div>
                 </div>
 
@@ -331,7 +472,10 @@ export default function CheckoutPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowNewAddressForm(false)}
+                    onClick={() => {
+                      setShowNewAddressForm(false);
+                      setAddressFormErrors({});
+                    }}
                     className="px-4 py-2 rounded-xl border border-zinc-200 text-zinc-600 text-xs font-semibold hover:bg-zinc-50 transition"
                   >
                     Hủy
@@ -393,32 +537,25 @@ export default function CheckoutPage() {
                   className="mt-1 w-4 h-4 text-zinc-900 focus:ring-zinc-900"
                 />
                 <div>
-                  <span className="text-sm font-bold text-zinc-900">VNPay QR / Thẻ nội địa ATM</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-zinc-900">VNPay QR / Thẻ nội địa ATM</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600">Sandbox</span>
+                  </div>
                   <p className="text-xs text-zinc-500 mt-1">
-                    Thanh toán an toàn qua cổng VNPay điện tử.
+                    Thanh toán mô phỏng qua cổng VNPay Sandbox (không xử lý tiền thực).
                   </p>
                 </div>
               </label>
 
-              <label
-                className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition ${
-                  paymentMethod === 'COD'
-                    ? 'border-zinc-900 bg-zinc-50/50'
-                    : 'border-zinc-200 hover:border-zinc-300'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="payment"
-                  checked={paymentMethod === 'COD'}
-                  onChange={() => setPaymentMethod('COD')}
-                  className="mt-1 w-4 h-4 text-zinc-900 focus:ring-zinc-900"
-                />
+              {/* COD — Out of scope for MVP per SRS ASM-003. Disabled. */}
+              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-zinc-100 bg-zinc-50 opacity-50 cursor-not-allowed">
+                <input type="radio" name="payment" disabled className="mt-1 w-4 h-4" />
                 <div>
-                  <span className="text-sm font-bold text-zinc-900">Thanh toán khi nhận hàng (COD)</span>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Kiểm tra hàng và thanh toán tiền mặt trực tiếp cho nhân viên giao vận.
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-zinc-400">Thanh toán khi nhận hàng (COD)</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-zinc-100 text-zinc-400">Sắp ra mắt</span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-1">Tính năng đang phát triển (Phase 2).</p>
                 </div>
               </label>
             </div>
@@ -469,6 +606,13 @@ export default function CheckoutPage() {
               </div>
             </div>
 
+            {orderErrorMessage && (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2 animate-in fade-in">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <p>{orderErrorMessage}</p>
+              </div>
+            )}
+
             {/* Submit button with Idempotency header */}
             <button
               onClick={handlePlaceOrder}
@@ -495,7 +639,7 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {/* Atomic Reservation Contention Error Modal */}
+      {/* STT 4: Atomic Reservation Contention Error Modal */}
       {stockContentionError && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -505,13 +649,18 @@ export default function CheckoutPage() {
           <div className="relative bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 z-10 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-2.5 text-rose-600">
               <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="text-base font-bold text-zinc-900">Lỗi giữ chỗ tồn kho (Contention)</h3>
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">Lỗi giữ chỗ tồn kho (Contention)</h3>
+                <span className="text-[10px] font-mono uppercase bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded font-semibold">
+                  Mã lỗi: {stockContentionError.code}
+                </span>
+              </div>
             </div>
             <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
-              {stockContentionError}
+              {stockContentionError.detail}
             </p>
             <p className="text-xs text-zinc-500">
-              Do nhiều khách hàng cùng lúc mua sắm, số lượng sản phẩm khả dụng trong kho đã thay đổi. Vui lòng quay lại giỏ hàng để cập nhật số lượng.
+              Do nhiều khách hàng cùng lúc mua sắm, số lượng sản phẩm khả dụng trong kho đã thay đổi. Giỏ hàng của bạn đã được tự động đồng bộ lại. Vui lòng quay lại giỏ hàng để cập nhật.
             </p>
             <div className="pt-2 flex gap-3">
               <button

@@ -25,3 +25,6 @@ Thumbs.db
 
 # agent
 .agents/
+
+# TypeScript build info
+*.tsbuildinfo

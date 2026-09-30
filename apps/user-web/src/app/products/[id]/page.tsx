@@ -12,6 +12,7 @@ import { ProductCard } from '@/components/product/ProductCard';
 import { Skeleton } from '@/components/common/SkeletonLoader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { useCartStore } from '@/store/cart-store';
+import { useUserStore } from '@/store/user-store';
 import { useToastStore } from '@/store/toast-store';
 import { MOCK_PRODUCTS } from '@/lib/mock-data';
 import {
@@ -32,6 +33,7 @@ export default function ProductDetailPage({
   const resolvedParams = use(params);
   const router = useRouter();
   const { addItem } = useCartStore();
+  const { isAuthenticated } = useUserStore();
   const { showSuccess, showWarning } = useToastStore();
 
   const [activeTab, setActiveTab] = useState<'desc' | 'specs' | 'shipping'>('desc');
@@ -85,24 +87,34 @@ export default function ProductDetailPage({
   }
 
   const currentSku = selectedSku || product.skus[0];
-  const maxStock = currentSku?.inventory?.quantityAvailable ?? 10;
+  const maxStock = currentSku?.inventory?.quantityAvailable ?? 0;
   const isOutOfStock = maxStock <= 0;
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (isOutOfStock) return;
     setIsAdding(true);
-    const res = addItem(product, currentSku, quantity);
-    if (res.success) {
-      showSuccess('Đã thêm vào giỏ hàng', `${product.name} (SL: ${quantity})`);
-    } else if (res.message) {
-      showWarning('Không thể thêm', res.message);
+    try {
+      const res = await addItem(product, currentSku, quantity);
+      if (res.success) {
+        showSuccess('Đã thêm vào giỏ hàng', `${product.name} (SL: ${quantity})`);
+      } else if (res.message) {
+        showWarning('Không thể thêm', res.message);
+      }
+    } finally {
+      setTimeout(() => setIsAdding(false), 500);
     }
-    setTimeout(() => setIsAdding(false), 500);
   };
 
-  const handleBuyNow = () => {
+  const handleBuyNow = async () => {
     if (isOutOfStock) return;
-    const res = addItem(product, currentSku, quantity);
+
+    // FIX-M8: Check auth trước khi mua ngay (BR-009)
+    if (!isAuthenticated) {
+      router.push('/auth/login?returnUrl=/checkout');
+      return;
+    }
+
+    const res = await addItem(product, currentSku, quantity);
     if (res.success) {
       router.push('/checkout');
     } else if (res.message) {

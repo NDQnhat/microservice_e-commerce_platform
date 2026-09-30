@@ -2,7 +2,7 @@
 
 import React, { useState, use } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Order } from '@/types';
 import { useUserStore } from '@/store/user-store';
@@ -30,6 +30,7 @@ export default function OrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const resolvedParams = use(params);
+  const queryClient = useQueryClient();
   const { user, isAuthenticated } = useUserStore();
   const { showSuccess } = useToastStore();
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
@@ -286,7 +287,10 @@ export default function OrderDetailPage({
           order={order}
           isOpen={isCancelModalOpen}
           onClose={() => setIsCancelModalOpen(false)}
-          onSuccess={() => refetch()}
+          onSuccess={() => {
+            refetch(); // Refresh order
+            queryClient.invalidateQueries({ queryKey: ['products'] }); // Refresh stock display
+          }}
         />
       )}
     </div>

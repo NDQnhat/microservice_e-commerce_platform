@@ -1,38 +1,93 @@
 'use client';
 
 import React, { Suspense, useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Product, Category, ProductFilterParams, PaginatedResult } from '@/types';
 import { ProductCard } from '@/components/product/ProductCard';
 import { FacetedFilters } from '@/components/product/FacetedFilters';
+import { Pagination } from '@/components/common/Pagination';
 import { ProductGridSkeleton } from '@/components/common/SkeletonLoader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { SlidersHorizontal, ArrowUpDown, X } from 'lucide-react';
 
 function ProductsContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
 
-  // Initialize filters from URL parameters
+  // STT 5 & STT 14: Initialize filters completely from URL parameters
   const [filters, setFilters] = useState<ProductFilterParams>({
     categoryId: searchParams.get('categoryId') || undefined,
     search: searchParams.get('search') || searchParams.get('q') || undefined,
     sortBy: (searchParams.get('sortBy') as any) || undefined,
     minPrice: searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined,
     maxPrice: searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined,
+    color: searchParams.get('color') || undefined,
+    size: searchParams.get('size') || undefined,
+    inStockOnly: searchParams.get('inStockOnly') === 'true' || searchParams.get('inStockOnly') === '1',
+    page: searchParams.get('page') ? Number(searchParams.get('page')) : 1,
+    pageSize: searchParams.get('pageSize') ? Number(searchParams.get('pageSize')) : 12,
   });
 
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   // Sync state if URL search query changes
   useEffect(() => {
-    setFilters((prev) => ({
-      ...prev,
+    setFilters({
       categoryId: searchParams.get('categoryId') || undefined,
       search: searchParams.get('search') || searchParams.get('q') || undefined,
-    }));
+      sortBy: (searchParams.get('sortBy') as any) || undefined,
+      minPrice: searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined,
+      maxPrice: searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined,
+      color: searchParams.get('color') || undefined,
+      size: searchParams.get('size') || undefined,
+      inStockOnly: searchParams.get('inStockOnly') === 'true' || searchParams.get('inStockOnly') === '1',
+      page: searchParams.get('page') ? Number(searchParams.get('page')) : 1,
+      pageSize: searchParams.get('pageSize') ? Number(searchParams.get('pageSize')) : 12,
+    });
   }, [searchParams]);
+
+  // STT 14: Push filters and pagination changes to URL SearchParams
+  const updateUrlWithFilters = (newFilters: ProductFilterParams) => {
+    const params = new URLSearchParams();
+    if (newFilters.search) params.set('search', newFilters.search);
+    if (newFilters.categoryId) params.set('categoryId', newFilters.categoryId);
+    if (newFilters.minPrice !== undefined && newFilters.minPrice > 0) {
+      params.set('minPrice', newFilters.minPrice.toString());
+    }
+    if (newFilters.maxPrice !== undefined && newFilters.maxPrice < Infinity) {
+      params.set('maxPrice', newFilters.maxPrice.toString());
+    }
+    if (newFilters.sortBy) params.set('sortBy', newFilters.sortBy);
+    if (newFilters.color) params.set('color', newFilters.color);
+    if (newFilters.size) params.set('size', newFilters.size);
+    if (newFilters.inStockOnly) params.set('inStockOnly', 'true');
+    if (newFilters.page && newFilters.page > 1) {
+      params.set('page', newFilters.page.toString());
+    }
+    if (newFilters.pageSize && newFilters.pageSize !== 12) {
+      params.set('pageSize', newFilters.pageSize.toString());
+    }
+
+    const queryStr = params.toString();
+    router.push(queryStr ? `/products?${queryStr}` : '/products');
+  };
+
+  const handleFilterChange = (newFilters: ProductFilterParams) => {
+    setFilters(newFilters);
+    updateUrlWithFilters(newFilters);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    const updated = { ...filters, page: newPage };
+    setFilters(updated);
+    updateUrlWithFilters(updated);
+    // Smooth scroll to top of products grid
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   // Query categories
   const { data: categories = [] } = useQuery<Category[]>({
@@ -40,40 +95,40 @@ function ProductsContent() {
     queryFn: () => apiClient<Category[]>('/api/v1/categories'),
   });
 
-  // Query products with active filters
-  const { data: productData, isLoading, refetch } = useQuery<PaginatedResult<Product>>({
+  // Query products with active filters and server-side pagination
+  const { data: productData, isLoading } = useQuery<PaginatedResult<Product>>({
     queryKey: ['products', filters],
     queryFn: () => {
       const params = new URLSearchParams();
       if (filters.search) params.set('search', filters.search);
       if (filters.categoryId) params.set('categoryId', filters.categoryId);
-      if (filters.minPrice) params.set('minPrice', filters.minPrice.toString());
-      if (filters.maxPrice) params.set('maxPrice', filters.maxPrice.toString());
+      if (filters.minPrice !== undefined && filters.minPrice > 0) {
+        params.set('minPrice', filters.minPrice.toString());
+      }
+      if (filters.maxPrice !== undefined && filters.maxPrice < Infinity) {
+        params.set('maxPrice', filters.maxPrice.toString());
+      }
       if (filters.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters.color) params.set('color', filters.color);
+      if (filters.size) params.set('size', filters.size);
+      if (filters.inStockOnly) params.set('inStockOnly', 'true');
+      params.set('page', (filters.page || 1).toString());
+      params.set('pageSize', (filters.pageSize || 12).toString());
+
       return apiClient<PaginatedResult<Product>>(`/api/v1/products?${params.toString()}`);
     },
   });
 
-  // Local client-side additional attribute filter for colors and sizes
-  let products = productData?.items || [];
-  if (filters.color) {
-    products = products.filter((p) =>
-      p.skus.some((s) => s.attributes?.Color?.includes(filters.color!))
-    );
-  }
-  if (filters.size) {
-    products = products.filter((p) =>
-      p.skus.some((s) => s.attributes?.Size === filters.size)
-    );
-  }
-  if (filters.inStockOnly) {
-    products = products.filter((p) =>
-      p.skus.some((s) => (s.inventory?.quantityAvailable ?? 0) > 0)
-    );
-  }
+  const products = productData?.items || [];
+  const total = productData?.total || 0;
+  const totalPages = productData?.totalPages || 1;
+  const currentPage = productData?.page || 1;
+  const pageSize = productData?.size || 12;
 
   const handleResetFilters = () => {
-    setFilters({});
+    const emptyFilters: ProductFilterParams = { page: 1, pageSize: 12 };
+    setFilters(emptyFilters);
+    updateUrlWithFilters(emptyFilters);
   };
 
   return (
@@ -89,7 +144,7 @@ function ProductsContent() {
               : 'Tất cả sản phẩm'}
           </h1>
           <p className="text-xs sm:text-sm text-zinc-500 mt-1">
-            Hiển thị <strong>{products.length}</strong> sản phẩm chất lượng cao
+            Hiển thị <strong>{products.length}</strong> trên tổng số <strong>{total}</strong> sản phẩm chất lượng cao
           </p>
         </div>
 
@@ -111,7 +166,11 @@ function ProductsContent() {
               <select
                 value={filters.sortBy || ''}
                 onChange={(e) =>
-                  setFilters({ ...filters, sortBy: (e.target.value as any) || undefined })
+                  handleFilterChange({
+                    ...filters,
+                    sortBy: (e.target.value as any) || undefined,
+                    page: 1,
+                  })
                 }
                 className="appearance-none bg-white border border-zinc-200 rounded-xl px-3 py-2 pr-8 text-xs font-medium text-zinc-900 focus:outline-none focus:border-zinc-900 cursor-pointer shadow-xs"
               >
@@ -135,14 +194,14 @@ function ProductsContent() {
             <FacetedFilters
               categories={categories}
               filters={filters}
-              onFilterChange={setFilters}
+              onFilterChange={handleFilterChange}
               onReset={handleResetFilters}
             />
           </div>
         </div>
 
         {/* Product Grid Area */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 space-y-8">
           {isLoading ? (
             <ProductGridSkeleton count={6} />
           ) : products.length === 0 ? (
@@ -155,11 +214,23 @@ function ProductsContent() {
               />
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
-              {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+                {products.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+
+              {/* STT 5: Pagination component */}
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={total}
+                pageSize={pageSize}
+                onPageChange={handlePageChange}
+                className="border-t border-zinc-200 pt-6"
+              />
+            </>
           )}
         </div>
       </div>
@@ -186,7 +257,7 @@ function ProductsContent() {
                 categories={categories}
                 filters={filters}
                 onFilterChange={(newF) => {
-                  setFilters(newF);
+                  handleFilterChange(newF);
                 }}
                 onReset={handleResetFilters}
               />
@@ -196,7 +267,7 @@ function ProductsContent() {
                 onClick={() => setIsMobileFilterOpen(false)}
                 className="w-full py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold"
               >
-                Xem kết quả ({products.length})
+                Xem kết quả ({total})
               </button>
             </div>
           </div>

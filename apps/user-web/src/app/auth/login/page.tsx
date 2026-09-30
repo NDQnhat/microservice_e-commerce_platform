@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useUserStore } from '@/store/user-store';
 import { useToastStore } from '@/store/toast-store';
+import { ApiClientError } from '@/lib/api-client';
 import { Lock, Mail, Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
 
 const loginSchema = z.object({
@@ -32,6 +33,10 @@ export default function LoginPage() {
   const { showSuccess, showError } = useToastStore();
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const {
     register,
@@ -52,7 +57,15 @@ export default function LoginPage() {
       showSuccess('Đăng nhập thành công', 'Chào mừng bạn quay trở lại với Atelier!');
       router.push(returnUrl);
     } catch (err) {
-      showError('Đăng nhập thất bại', err);
+      if (err instanceof ApiClientError) {
+        if (err.problem.status === 403) {
+          showError('Tài khoản bị khóa', err.problem.detail);
+        } else {
+          showError('Đăng nhập thất bại', err.problem.detail || 'Email hoặc mật khẩu không chính xác.');
+        }
+      } else {
+        showError('Đăng nhập thất bại', err);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -104,9 +117,17 @@ export default function LoginPage() {
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-zinc-700 block">Mật khẩu</label>
-              <a href="#" className="text-[11px] text-zinc-500 hover:text-zinc-900">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotEmail(register('email').name ? (document.querySelector('input[type="email"]') as HTMLInputElement)?.value || '' : '');
+                  setResetSent(false);
+                  setShowForgotPasswordModal(true);
+                }}
+                className="text-[11px] text-zinc-500 hover:text-zinc-900 transition"
+              >
                 Quên mật khẩu?
-              </a>
+              </button>
             </div>
             <div className="relative">
               <input
@@ -156,6 +177,95 @@ export default function LoginPage() {
           </Link>
         </div>
       </div>
+
+      {/* STT 17: Forgot Password Recovery Modal */}
+      {showForgotPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs"
+            onClick={() => setShowForgotPasswordModal(false)}
+          />
+          <div className="relative bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 z-10 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-bold text-zinc-900">Khôi phục mật khẩu</h3>
+              <p className="text-xs text-zinc-500">
+                Nhập địa chỉ email đăng ký tài khoản của bạn để nhận mã xác thực OTP đặt lại mật khẩu.
+              </p>
+            </div>
+
+            {resetSent ? (
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-center space-y-3">
+                <p className="text-xs text-emerald-800 font-medium leading-relaxed">
+                  🎉 Yêu cầu đặt lại mật khẩu thành công! Mã OTP và đường dẫn khôi phục đã được gửi tới{' '}
+                  <strong className="font-mono text-zinc-900">{forgotEmail}</strong>.
+                </p>
+                <button
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  className="py-2 px-4 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800"
+                >
+                  Đóng
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!forgotEmail || !forgotEmail.includes('@')) {
+                    showError('Vui lòng nhập địa chỉ email hợp lệ');
+                    return;
+                  }
+                  setIsSendingReset(true);
+                  setTimeout(() => {
+                    setIsSendingReset(false);
+                    setResetSent(true);
+                    showSuccess('Đã gửi mã khôi phục mật khẩu', forgotEmail);
+                  }, 800);
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="text-xs font-semibold text-zinc-700 block mb-1">Email đăng ký</label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      required
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-zinc-200 text-xs sm:text-sm text-zinc-900 focus:outline-none focus:border-zinc-900"
+                    />
+                    <Mail className="w-4 h-4 text-zinc-400 absolute left-3 top-3" />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPasswordModal(false)}
+                    className="flex-1 py-2.5 px-3 rounded-xl border border-zinc-200 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSendingReset}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isSendingReset ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Đang gửi...</span>
+                      </>
+                    ) : (
+                      <span>Gửi liên kết</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
