@@ -73,7 +73,7 @@ services:
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     container_name: ecommerce-minio
     command: server /data --console-address ":9001"
     environment:
