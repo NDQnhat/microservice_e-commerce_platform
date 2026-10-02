@@ -59,11 +59,31 @@ export const useCartStore = create<CartState>()(
 
       loadConfigurations: async () => {
         try {
-          const config = await apiClient<BusinessConfiguration>('/api/v1/configurations');
-          if (config && typeof config.free_shipping_threshold === 'number') {
+          const config = await apiClient<any>('/api/v1/configurations');
+          let freeShipping: number | undefined;
+          let standardShipping: number | undefined;
+
+          if (Array.isArray(config)) {
+            for (const item of config) {
+              const k = (item.configKey || item.key || '').toLowerCase();
+              const v = Number(item.configValue || item.value);
+              if (k.includes('free') && (k.includes('shipping') || k.includes('threshold') || k.includes('amount'))) {
+                freeShipping = v;
+              } else if (k.includes('standard') || k.includes('shipping.fee') || k.includes('shipping_fee')) {
+                standardShipping = v;
+              }
+            }
+          } else if (config && typeof config === 'object') {
+            freeShipping = config.free_shipping_threshold;
+            standardShipping = config.standard_shipping_fee;
+          }
+
+          if (typeof freeShipping === 'number' && !isNaN(freeShipping)) {
             set({
-              freeShippingThreshold: config.free_shipping_threshold,
-              standardShippingFee: config.standard_shipping_fee ?? DEFAULT_STANDARD_SHIPPING_FEE,
+              freeShippingThreshold: freeShipping,
+              standardShippingFee: (typeof standardShipping === 'number' && !isNaN(standardShipping))
+                ? standardShipping
+                : DEFAULT_STANDARD_SHIPPING_FEE,
             });
           }
         } catch {

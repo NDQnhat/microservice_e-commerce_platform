@@ -62,8 +62,20 @@ export default function PaymentGatewaySimulationPage({
   useEffect(() => {
     async function loadTTL() {
       try {
-        const config = await apiClient<BusinessConfiguration>('/api/v1/configurations');
-        const ttlSeconds = (config.reservation_timeout_minutes ?? 15) * 60;
+        const config = await apiClient<any>('/api/v1/configurations');
+        let ttlMinutes = 15;
+        if (Array.isArray(config)) {
+          const item = config.find((i: any) => {
+            const k = (i.configKey || i.key || '').toLowerCase();
+            return k.includes('reservation') || k.includes('timeout') || k.includes('ttl');
+          });
+          if (item && !isNaN(Number(item.configValue || item.value))) {
+            ttlMinutes = Number(item.configValue || item.value);
+          }
+        } else if (config?.reservation_timeout_minutes) {
+          ttlMinutes = config.reservation_timeout_minutes;
+        }
+        const ttlSeconds = (ttlMinutes ?? 15) * 60;
         setCountdown(ttlSeconds);
       } catch {
         setCountdown(15 * 60); // Fallback 15 phút nếu config API fail

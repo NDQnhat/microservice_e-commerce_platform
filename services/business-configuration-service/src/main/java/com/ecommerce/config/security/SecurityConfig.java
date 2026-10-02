@@ -95,12 +95,15 @@ public class SecurityConfig {
                                 "/api/v1/configurations",
                                 "/api/v1/configurations/**"
                         ).hasRole("SUPER_ADMIN")
-                        // Reading configurations requires SUPER_ADMIN or ADMIN
+                        // Public storefront access for reading active configurations
                         .requestMatchers(HttpMethod.GET,
-                                "/api/v1/backoffice/configurations",
-                                "/api/v1/backoffice/configurations/**",
                                 "/api/v1/configurations",
                                 "/api/v1/configurations/**"
+                        ).permitAll()
+                        // Reading backoffice configurations requires SUPER_ADMIN or ADMIN
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/backoffice/configurations",
+                                "/api/v1/backoffice/configurations/**"
                         ).hasAnyRole("SUPER_ADMIN", "ADMIN")
                         .anyRequest().authenticated()
                 )

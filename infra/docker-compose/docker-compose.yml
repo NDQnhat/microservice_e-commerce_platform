@@ -1,7 +1,13 @@
 services:
+  # ============================================================================
+  # GROUP 1: CORE INFRA — luôn khởi động, không cần profile
+  #   Lệnh: docker compose up -d
+  # ============================================================================
+
   postgresql:
     image: postgres:16-alpine
     container_name: ecommerce-postgres
+    command: "postgres -c max_connections=300 -c shared_buffers=128MB"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -15,6 +21,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    mem_limit: 512m
 
   redis:
     image: redis:7-alpine
@@ -28,6 +41,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -35,8 +55,16 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_HEAP_OPTS: "-Xmx128M -Xms64M"
     ports:
       - "2181:2181"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -54,11 +82,24 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xmx256M -Xms128M"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 5
+      retries: 10
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    mem_limit: 512m
+
+  # ============================================================================
+  # MESSAGING UI & STORAGE — Luôn chạy cùng infra
+  # ============================================================================
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -71,6 +112,14 @@ services:
       KAFKA_CLUSTERS_0_NAME: local-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      JAVA_OPTS: "-Xmx128M -Xms64M"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   minio:
     image: cgr.dev/chainguard/minio:latest
@@ -84,6 +133,17 @@ services:
       - "9001:9001"
     volumes:
       - minio-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
+
+  # ============================================================================
+  # OBSERVABILITY — Luôn chạy cùng infra
+  # ============================================================================
 
   prometheus:
     image: prom/prometheus:latest
@@ -93,6 +153,13 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 96M
+    mem_limit: 192m
 
   grafana:
     image: grafana/grafana:latest
@@ -101,10 +168,18 @@ services:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 96M
+    mem_limit: 192m
 
   tempo:
     image: grafana/tempo:latest
     container_name: ecommerce-tempo
+    user: "root"
     command: ["-config.file=/etc/tempo.yml"]
     volumes:
       - ../observability/tempo/tempo.yml:/etc/tempo.yml:ro
@@ -112,6 +187,13 @@ services:
     ports:
       - "3200:3200"
       - "4317:4317"
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+        reservations:
+          memory: 96M
+    mem_limit: 192m
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -124,6 +206,460 @@ services:
       - "8889:8889"
     depends_on:
       - tempo
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+    mem_limit: 128m
+
+  # ============================================================================
+  # PLATFORM CORE — Luôn chạy cùng infra
+  # ============================================================================
+
+  service-discovery:
+    build:
+      context: ../../services/service-discovery
+      dockerfile: Dockerfile
+    container_name: ecommerce-service-discovery
+    ports:
+      - "8761:8761"
+    environment:
+      SERVER_PORT: 8761
+      EUREKA_INSTANCE_HOSTNAME: service-discovery
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  api-gateway:
+    build:
+      context: ../../services/api-gateway
+      dockerfile: Dockerfile
+    container_name: ecommerce-api-gateway
+    depends_on:
+      - service-discovery
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # ============================================================================
+  # BUSINESS SERVICES — Mở theo luồng nghiệp vụ cần test
+  # ----------------------------------------------------------------------------
+  # FLOW MAP:
+  #   flow-identity  → identity-access-service
+  #   flow-catalog   → catalog + pricing + identity
+  #   flow-cart      → cart + catalog + pricing + identity
+  #   flow-order     → order + payment + inventory + cart + catalog + pricing + identity
+  #   flow-fulfillment → fulfillment + notification + order
+  #   flow-admin     → audit + business-config + exception-management
+  # ============================================================================
+
+  # --- FLOW: IDENTITY & AUTH ---
+  # Test: đăng ký, đăng nhập, phân quyền
+  # Lệnh: docker compose --profile flow-identity up -d
+  identity-access-service:
+    profiles: [flow-identity, flow-catalog, flow-cart, flow-order]
+    build:
+      context: ../../services/identity-access-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-identity-service
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: 8081
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/identity_access_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # --- FLOW: CATALOG & PRICING ---
+  # Test: duyệt sản phẩm, xem giá, tìm kiếm
+  # Lệnh: docker compose --profile flow-catalog up -d
+  catalog-service:
+    build:
+      context: ../../services/catalog-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-catalog-service
+    profiles: [flow-catalog, flow-cart, flow-order]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8082:8082"
+    environment:
+      SERVER_PORT: 8082
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/catalog_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  pricing-service:
+    build:
+      context: ../../services/pricing-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-pricing-service
+    profiles: [flow-catalog, flow-cart, flow-order]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/pricing_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # --- FLOW: SHOPPING CART ---
+  # Test: thêm/xóa giỏ hàng, tính tổng tiền
+  # Lệnh: docker compose --profile flow-cart up -d
+  cart-service:
+    build:
+      context: ../../services/cart-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-cart-service
+    profiles: [flow-cart, flow-order]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8084:8084"
+    environment:
+      SERVER_PORT: 8084
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/cart_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # --- FLOW: ORDER & PAYMENT ---
+  # Test: đặt hàng, thanh toán, kiểm tra tồn kho
+  # Lệnh: docker compose --profile flow-order up -d
+  inventory-service:
+    build:
+      context: ../../services/inventory-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-inventory-service
+    profiles: [flow-order]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8085:8085"
+    environment:
+      SERVER_PORT: 8085
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/inventory_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 448M
+        reservations:
+          memory: 256M
+    mem_limit: 448m
+
+  order-service:
+    build:
+      context: ../../services/order-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-order-service
+    profiles: [flow-order, flow-fulfillment]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8086:8086"
+    environment:
+      SERVER_PORT: 8086
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/order_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      INVENTORY_SERVICE_URL: http://inventory-service:8085
+      PRICING_SERVICE_URL: http://pricing-service:8083
+      CART_SERVICE_URL: http://cart-service:8084
+    deploy:
+      resources:
+        limits:
+          memory: 448M
+        reservations:
+          memory: 256M
+    mem_limit: 448m
+
+  payment-service:
+    build:
+      context: ../../services/payment-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-payment-service
+    profiles: [flow-order]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8087:8087"
+    environment:
+      SERVER_PORT: 8087
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/payment_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      ORDER_SERVICE_URL: http://order-service:8086
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # --- FLOW: FULFILLMENT & NOTIFICATION ---
+  # Test: xử lý giao hàng, gửi thông báo
+  # Lệnh: docker compose --profile flow-fulfillment up -d
+  fulfillment-service:
+    build:
+      context: ../../services/fulfillment-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-fulfillment-service
+    profiles: [flow-fulfillment]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8098:8088"
+    environment:
+      SERVER_PORT: 8088
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/fulfillment_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      ORDER_SERVICE_URL: http://order-service:8086
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  notification-service:
+    build:
+      context: ../../services/notification-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-notification-service
+    profiles: [flow-fulfillment]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8089:8089"
+    environment:
+      SERVER_PORT: 8089
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/notification_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  # --- FLOW: ADMIN & COMPLIANCE ---
+  # Test: audit log, cấu hình hệ thống, xử lý ngoại lệ
+  # Lệnh: docker compose --profile flow-admin up -d
+  audit-compliance-service:
+    build:
+      context: ../../services/audit-compliance-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-audit-service
+    profiles: [flow-admin]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8090:8090"
+    environment:
+      SERVER_PORT: 8090
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/audit_compliance_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  business-configuration-service:
+    build:
+      context: ../../services/business-configuration-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-business-config
+    profiles: [flow-admin]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8091:8091"
+    environment:
+      SERVER_PORT: 8091
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/business_configuration_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
+
+  exception-management-service:
+    build:
+      context: ../../services/exception-management-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-exception-service
+    profiles: [flow-admin]
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+    ports:
+      - "8092:8092"
+    environment:
+      SERVER_PORT: 8092
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/exception_management_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 256M
+    mem_limit: 384m
 
 volumes:
   postgres-data:

@@ -198,7 +198,7 @@ Sau khi chạy lệnh trên, Docker sẽ tự động tải các image và khở
 
 **Kiểm tra trạng thái các container**:
 ```bash
-docker compose -f infra/docker-compose/docker-compose.yml ps
+docker compose -f infra/docker-compose/docker-compose.yml up -d
 ```
 
 ---

@@ -17,6 +17,7 @@ spring:
           '[/**]':
             allowedOrigins:
               - "http://localhost:3000"
+              - "http://localhost:3001"
               - "http://localhost:5173"
             allowedMethods:
               - GET
@@ -27,10 +28,25 @@ spring:
             allowedHeaders: "*"
             allowCredentials: true
       routes:
+        - id: cart-service-route
+          uri: lb://cart-service
+          predicates:
+            - Path=/api/v1/cart/**, /api/v1/customers/*/cart, /api/v1/customers/*/cart/**
+
+        - id: order-service-route
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders/**, /api/v1/customers/*/orders, /api/v1/customers/*/orders/**, /api/v1/backoffice/orders/**
+
+        - id: configuration-service-route
+          uri: lb://business-configuration-service
+          predicates:
+            - Path=/api/v1/configurations, /api/v1/configurations/**, /api/v1/backoffice/configurations, /api/v1/backoffice/configurations/**
+
         - id: identity-service-route
           uri: lb://identity-access-service
           predicates:
-            - Path=/api/v1/auth/**, /api/v1/customers/**, /api/v1/backoffice/users/**, /api/v1/backoffice/roles/**
+            - Path=/api/v1/auth/**, /api/v1/customers/register, /api/v1/customers/*/addresses, /api/v1/customers/*/addresses/**, /api/v1/backoffice/users/**, /api/v1/backoffice/roles/**
 
         - id: catalog-service-route
           uri: lb://catalog-service
@@ -42,20 +58,10 @@ spring:
           predicates:
             - Path=/api/v1/prices/**, /api/v1/backoffice/pricing/**
 
-        - id: cart-service-route
-          uri: lb://cart-service
-          predicates:
-            - Path=/api/v1/cart/**
-
         - id: inventory-service-route
           uri: lb://inventory-service
           predicates:
-            - Path=/api/v1/inventory/**, /api/v1/backoffice/skus/{skuId}/inventory/**
-
-        - id: order-service-route
-          uri: lb://order-service
-          predicates:
-            - Path=/api/v1/orders/**, /api/v1/backoffice/orders/**
+            - Path=/api/v1/inventory/**, /api/v1/backoffice/skus/{skuId}/inventory/**, /api/v1/backoffice/inventory/**
 
         - id: payment-service-route
           uri: lb://payment-service
@@ -76,11 +82,6 @@ spring:
           uri: lb://audit-compliance-service
           predicates:
             - Path=/api/v1/backoffice/audit-log/**
-
-        - id: configuration-service-route
-          uri: lb://business-configuration-service
-          predicates:
-            - Path=/api/v1/backoffice/configurations/**
 
         - id: exception-service-route
           uri: lb://exception-management-service

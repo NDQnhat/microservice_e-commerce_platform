@@ -18,6 +18,8 @@ dependencies {
     implementation libs.spring.cloud.starter.loadbalancer
     implementation libs.spring.cloud.starter.openfeign
     implementation libs.resilience4j.spring.boot3
+    runtimeOnly libs.resilience4j.rxjava3
+    runtimeOnly libs.resilience4j.reactor
     implementation libs.postgresql
     implementation libs.flyway.core
     implementation libs.flyway.database.postgresql
