@@ -1,8 +1,35 @@
+# ============================================================================
+# E-COMMERCE PLATFORM — DOCKER COMPOSE (RAM-OPTIMIZED FOR DEV)
+# ============================================================================
+#
+# CORE INFRA (always on, ~1.2 GiB actual):
+#   docker compose up -d
+#   Starts: postgres, redis, kafka (KRaft), service-discovery,
+#           api-gateway, business-configuration-service
+#
+# OPTIONAL TOOLS (start when needed):
+#   docker compose --profile tools up -d
+#   Starts: kafka-ui, minio
+#
+# OBSERVABILITY (start when debugging metrics/traces):
+#   docker compose --profile observability up -d
+#   Starts: prometheus, grafana, tempo, otel-collector
+#
+# BUSINESS FLOWS (start the flow you need to test):
+#   docker compose --profile flow-identity up -d      # auth/login
+#   docker compose --profile flow-catalog up -d       # products/pricing
+#   docker compose --profile flow-cart up -d          # shopping cart
+#   docker compose --profile flow-order up -d         # orders/payment/inventory
+#   docker compose --profile flow-fulfillment up -d   # shipping/notifications
+#   docker compose --profile flow-admin up -d         # audit/exceptions
+#
+# STOP EVERYTHING:
+#   docker compose --profile tools --profile observability \
+#     --profile flow-identity --profile flow-catalog --profile flow-cart \
+#     --profile flow-order --profile flow-fulfillment --profile flow-admin down
+# ============================================================================
+
 services:
-  # ============================================================================
-  # GROUP 1: CORE INFRA — luôn khởi động, không cần profile
-  #   Lệnh: docker compose up -d
-  # ============================================================================
 
   postgresql:
     image: postgres:16-alpine
@@ -24,10 +51,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-        reservations:
           memory: 256M
-    mem_limit: 512m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   redis:
     image: redis:7-alpine
@@ -44,84 +71,76 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 64M
         reservations:
-          memory: 128M
-    mem_limit: 256m
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: ecommerce-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      KAFKA_HEAP_OPTS: "-Xmx128M -Xms64M"
-    ports:
-      - "2181:2181"
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 128M
-    mem_limit: 256m
+          memory: 32M
+    mem_limit: 64m
 
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.7.1
     container_name: ecommerce-kafka
-    depends_on:
-      - zookeeper
     ports:
       - "9092:9092"
       - "29092:29092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
       KAFKA_HEAP_OPTS: "-Xmx256M -Xms128M"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 45s
+      start_period: 30s
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 384M
         reservations:
-          memory: 256M
-    mem_limit: 512m
+          memory: 192M
+    mem_limit: 384m
 
   # ============================================================================
-  # MESSAGING UI & STORAGE — Luôn chạy cùng infra
+  # OPTIONAL TOOLS — enable with --profile tools
   # ============================================================================
 
   kafka-ui:
+    profiles: [tools]
     image: provectuslabs/kafka-ui:latest
     container_name: ecommerce-kafka-ui
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "8088:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local-cluster
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
       JAVA_OPTS: "-Xmx128M -Xms64M"
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 192M
         reservations:
-          memory: 128M
-    mem_limit: 256m
+          memory: 96M
+    mem_limit: 192m
 
   minio:
+    profiles: [tools]
     image: cgr.dev/chainguard/minio:latest
     container_name: ecommerce-minio
     command: server /data --console-address ":9001"
@@ -136,16 +155,17 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
-        reservations:
           memory: 128M
-    mem_limit: 256m
+        reservations:
+          memory: 64M
+    mem_limit: 128m
 
   # ============================================================================
-  # OBSERVABILITY — Luôn chạy cùng infra
+  # OBSERVABILITY — enable with --profile observability
   # ============================================================================
 
   prometheus:
+    profiles: [observability]
     image: prom/prometheus:latest
     container_name: ecommerce-prometheus
     volumes:
@@ -156,12 +176,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
+          memory: 128M
         reservations:
-          memory: 96M
-    mem_limit: 192m
+          memory: 64M
+    mem_limit: 128m
 
   grafana:
+    profiles: [observability]
     image: grafana/grafana:latest
     container_name: ecommerce-grafana
     ports:
@@ -177,6 +198,7 @@ services:
     mem_limit: 192m
 
   tempo:
+    profiles: [observability]
     image: grafana/tempo:latest
     container_name: ecommerce-tempo
     user: "root"
@@ -190,12 +212,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192M
+          memory: 64M
         reservations:
-          memory: 96M
-    mem_limit: 192m
+          memory: 32M
+    mem_limit: 64m
 
   otel-collector:
+    profiles: [observability]
     image: otel/opentelemetry-collector-contrib:latest
     container_name: ecommerce-otel-collector
     command: ["--config=/etc/otel-collector-config.yml"]
@@ -209,10 +232,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 96M
         reservations:
-          memory: 64M
-    mem_limit: 128m
+          memory: 48M
+    mem_limit: 96m
 
   # ============================================================================
   # PLATFORM CORE — Luôn chạy cùng infra
@@ -228,6 +251,12 @@ services:
     environment:
       SERVER_PORT: 8761
       EUREKA_INSTANCE_HOSTNAME: service-discovery
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx160m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8761/actuator/health || exit 1"]
       interval: 15s
@@ -236,10 +265,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   api-gateway:
     build:
@@ -253,13 +282,56 @@ services:
     environment:
       SERVER_PORT: 8080
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
+
+  business-configuration-service:
+    build:
+      context: ../../services/business-configuration-service
+      dockerfile: Dockerfile
+    container_name: ecommerce-business-config
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      service-discovery:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8091:8091"
+    environment:
+      SERVER_PORT: 8091
+      DATABASE_URL: jdbc:postgresql://postgresql:5432/business_configuration_db
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # ============================================================================
   # BUSINESS SERVICES — Mở theo luồng nghiệp vụ cần test
@@ -270,7 +342,7 @@ services:
   #   flow-cart      → cart + catalog + pricing + identity
   #   flow-order     → order + payment + inventory + cart + catalog + pricing + identity
   #   flow-fulfillment → fulfillment + notification + order
-  #   flow-admin     → audit + business-config + exception-management
+  #   flow-admin     → audit + exception-management
   # ============================================================================
 
   # --- FLOW: IDENTITY & AUTH ---
@@ -296,13 +368,21 @@ services:
       DATABASE_PASSWORD: postgres
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # --- FLOW: CATALOG & PRICING ---
   # Test: duyệt sản phẩm, xem giá, tìm kiếm
@@ -327,13 +407,21 @@ services:
       DATABASE_PASSWORD: postgres
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   pricing-service:
     build:
@@ -355,13 +443,21 @@ services:
       DATABASE_PASSWORD: postgres
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # --- FLOW: SHOPPING CART ---
   # Test: thêm/xóa giỏ hàng, tính tổng tiền
@@ -390,13 +486,21 @@ services:
       REDIS_PORT: 6379
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # --- FLOW: ORDER & PAYMENT ---
   # Test: đặt hàng, thanh toán, kiểm tra tồn kho
@@ -428,13 +532,21 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 448M
+          memory: 320M
         reservations:
-          memory: 256M
-    mem_limit: 448m
+          memory: 160M
+    mem_limit: 320m
 
   order-service:
     build:
@@ -462,13 +574,21 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:8085
       PRICING_SERVICE_URL: http://pricing-service:8083
       CART_SERVICE_URL: http://cart-service:8084
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 448M
+          memory: 320M
         reservations:
-          memory: 256M
-    mem_limit: 448m
+          memory: 160M
+    mem_limit: 320m
 
   payment-service:
     build:
@@ -494,13 +614,21 @@ services:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       ORDER_SERVICE_URL: http://order-service:8086
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # --- FLOW: FULFILLMENT & NOTIFICATION ---
   # Test: xử lý giao hàng, gửi thông báo
@@ -529,13 +657,21 @@ services:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
       ORDER_SERVICE_URL: http://order-service:8086
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   notification-service:
     build:
@@ -560,13 +696,21 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
   # --- FLOW: ADMIN & COMPLIANCE ---
   # Test: audit log, cấu hình hệ thống, xử lý ngoại lệ
@@ -594,41 +738,21 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
-
-  business-configuration-service:
-    build:
-      context: ../../services/business-configuration-service
-      dockerfile: Dockerfile
-    container_name: ecommerce-business-config
-    profiles: [flow-admin]
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      service-discovery:
-        condition: service_started
-    ports:
-      - "8091:8091"
-    environment:
-      SERVER_PORT: 8091
-      DATABASE_URL: jdbc:postgresql://postgresql:5432/business_configuration_db
-      DATABASE_USERNAME: postgres
-      DATABASE_PASSWORD: postgres
-      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
-      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
-    deploy:
-      resources:
-        limits:
-          memory: 384M
         reservations:
-          memory: 256M
-    mem_limit: 384m
+          memory: 128M
+    mem_limit: 256m
 
   exception-management-service:
     build:
@@ -653,17 +777,26 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-discovery:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+      JAVA_TOOL_OPTIONS: >-
+        -Xms64m
+        -Xmx192m
+        -XX:+UseSerialGC
+        -XX:MaxMetaspaceSize=96m
+        -Dspring.jmx.enabled=false
+        -Dspring.backgroundpreinitializer.ignore=true
+        -XX:TieredStopAtLevel=1
     deploy:
       resources:
         limits:
-          memory: 384M
-        reservations:
           memory: 256M
-    mem_limit: 384m
+        reservations:
+          memory: 128M
+    mem_limit: 256m
 
 volumes:
   postgres-data:
   redis-data:
+  kafka-data:
   minio-data:
   prometheus-data:
   grafana-data:
