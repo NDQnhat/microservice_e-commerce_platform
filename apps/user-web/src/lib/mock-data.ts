@@ -1,58 +1,59 @@
 import { Category, Product, CustomerAddress, Order } from '@/types';
 
+// Canonical UUIDs — must match V2__seed_catalog_data.sql exactly
 export const MOCK_CATEGORIES: Category[] = [
   {
-    id: 'cat-fashion',
+    id: 'a1000000-0000-0000-0000-000000000001',
     name: 'Thời trang & May mặc',
     code: 'FASHION',
     displayOrder: 1,
     isActive: true,
     imageUrl: 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=600&q=80',
     subcategories: [
-      { id: 'cat-fashion-men', name: 'Thời trang Nam', code: 'MEN_FASHION', parentId: 'cat-fashion', displayOrder: 1, isActive: true },
-      { id: 'cat-fashion-women', name: 'Thời trang Nữ', code: 'WOMEN_FASHION', parentId: 'cat-fashion', displayOrder: 2, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000011', name: 'Thời trang Nam', code: 'MEN_FASHION', parentId: 'a1000000-0000-0000-0000-000000000001', displayOrder: 1, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000012', name: 'Thời trang Nữ', code: 'WOMEN_FASHION', parentId: 'a1000000-0000-0000-0000-000000000001', displayOrder: 2, isActive: true },
     ],
   },
   {
-    id: 'cat-tech',
+    id: 'a1000000-0000-0000-0000-000000000002',
     name: 'Thiết bị & Công nghệ',
     code: 'TECH',
     displayOrder: 2,
     isActive: true,
     imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=600&q=80',
     subcategories: [
-      { id: 'cat-audio', name: 'Tai nghe & Âm thanh', code: 'AUDIO', parentId: 'cat-tech', displayOrder: 1, isActive: true },
-      { id: 'cat-wearables', name: 'Đồng hồ thông minh', code: 'WEARABLES', parentId: 'cat-tech', displayOrder: 2, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000021', name: 'Tai nghe & Âm thanh', code: 'AUDIO', parentId: 'a1000000-0000-0000-0000-000000000002', displayOrder: 1, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000022', name: 'Đồng hồ thông minh', code: 'WEARABLES', parentId: 'a1000000-0000-0000-0000-000000000002', displayOrder: 2, isActive: true },
     ],
   },
   {
-    id: 'cat-accessories',
+    id: 'a1000000-0000-0000-0000-000000000003',
     name: 'Phụ kiện cao cấp',
     code: 'ACCESSORIES',
     displayOrder: 3,
     isActive: true,
     imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=600&q=80',
     subcategories: [
-      { id: 'cat-bags', name: 'Balo & Túi xách', code: 'BAGS', parentId: 'cat-accessories', displayOrder: 1, isActive: true },
-      { id: 'cat-eyewear', name: 'Kính mắt thời trang', code: 'EYEWEAR', parentId: 'cat-accessories', displayOrder: 2, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000031', name: 'Balo & Túi xách', code: 'BAGS', parentId: 'a1000000-0000-0000-0000-000000000003', displayOrder: 1, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000032', name: 'Kính mắt thời trang', code: 'EYEWEAR', parentId: 'a1000000-0000-0000-0000-000000000003', displayOrder: 2, isActive: true },
     ],
   },
   {
-    id: 'cat-lifestyle',
+    id: 'a1000000-0000-0000-0000-000000000004',
     name: 'Không gian sống & Decor',
     code: 'LIFESTYLE',
     displayOrder: 4,
     isActive: true,
     imageUrl: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=600&q=80',
     subcategories: [
-      { id: 'cat-desk', name: 'Bàn làm việc & Setup', code: 'DESK_SETUP', parentId: 'cat-lifestyle', displayOrder: 1, isActive: true },
+      { id: 'a1000000-0000-0000-0000-000000000041', name: 'Bàn làm việc & Setup', code: 'DESK_SETUP', parentId: 'a1000000-0000-0000-0000-000000000004', displayOrder: 1, isActive: true },
     ],
   },
 ];
 
 export const MOCK_PRODUCTS: Product[] = [
   {
-    id: 'prod-001',
+    id: 'd1000000-0000-0000-0000-000000000001',
     name: 'Áo Hoodie Minimalist Heavyweight Oversized',
     slug: 'ao-hoodie-minimalist-heavyweight-oversized',
     description: 'Chất liệu nỉ cotton 100% định lượng 450gsm siêu dày dặn, giữ ấm tối ưu với form dáng rủ hiện đại chuẩn phong cách Scandinavian minimalism. Bo thun dệt kim chống dão, đường may tỉ mỉ đôi viền.',
@@ -70,7 +71,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: false,
     skus: [
       {
-        id: 'sku-001-blk-m',
+        id: 'e1000000-0000-0000-0000-000000000001',
         skuCode: 'HD-BLK-M',
         price: 850000,
         salePrice: 680000, // BR-013 Promo
@@ -79,7 +80,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 25, quantityReserved: 5, quantityAvailable: 20 },
       },
       {
-        id: 'sku-001-blk-l',
+        id: 'e1000000-0000-0000-0000-000000000002',
         skuCode: 'HD-BLK-L',
         price: 850000,
         salePrice: 680000,
@@ -88,7 +89,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 3, quantityReserved: 1, quantityAvailable: 2 }, // Low stock urgency!
       },
       {
-        id: 'sku-001-gry-m',
+        id: 'e1000000-0000-0000-0000-000000000003',
         skuCode: 'HD-GRY-M',
         price: 850000,
         isActive: true,
@@ -96,7 +97,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 15, quantityReserved: 0, quantityAvailable: 15 },
       },
       {
-        id: 'sku-001-gry-l',
+        id: 'e1000000-0000-0000-0000-000000000004',
         skuCode: 'HD-GRY-L',
         price: 850000,
         isActive: true,
@@ -106,7 +107,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-002',
+    id: 'd1000000-0000-0000-0000-000000000002',
     name: 'Tai nghe Không dây Hi-Res Spatial Audio Studio X',
     slug: 'tai-nghe-khong-day-hi-res-spatial-audio-studio-x',
     description: 'Trải nghiệm âm thanh vòm không gian chuẩn phòng thu với màng loa Bio-Cellulose 40mm, công nghệ Chống ồn chủ động Hybrid ANC thích ứng môi trường. Thời lượng pin 45 giờ liên tục, đệm tai da cừu êm ái.',
@@ -123,7 +124,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: false,
     skus: [
       {
-        id: 'sku-002-slv',
+        id: 'e1000000-0000-0000-0000-000000000011',
         skuCode: 'HP-SLV-PRO',
         price: 3890000,
         salePrice: 3290000, // BR-013
@@ -132,7 +133,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 8, quantityReserved: 3, quantityAvailable: 5 },
       },
       {
-        id: 'sku-002-blk',
+        id: 'e1000000-0000-0000-0000-000000000012',
         skuCode: 'HP-BLK-PRO',
         price: 3890000,
         isActive: true,
@@ -142,7 +143,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-003',
+    id: 'd1000000-0000-0000-0000-000000000003',
     name: 'Balo Công thái học Urban Commuter Chống Nước',
     slug: 'balo-cong-thai-hoc-urban-commuter-chong-nuoc',
     description: 'Chất liệu Cordura 1000D kháng nước vượt trội đạt chuẩn IPX4. Ngăn chống sốc bảo vệ laptop 16-inch lót lông nhung cao cấp, khóa kéo YKK AquaGuard chính hãng, đệm lưng thoáng khí giảm áp lực cột sống.',
@@ -159,7 +160,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: true,
     skus: [
       {
-        id: 'sku-003-blk',
+        id: 'e1000000-0000-0000-0000-000000000021',
         skuCode: 'BP-URB-BLK',
         price: 1450000,
         salePrice: 1250000,
@@ -168,7 +169,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 12, quantityReserved: 2, quantityAvailable: 10 },
       },
       {
-        id: 'sku-003-olv',
+        id: 'e1000000-0000-0000-0000-000000000022',
         skuCode: 'BP-URB-OLV',
         price: 1450000,
         isActive: true,
@@ -178,7 +179,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-004',
+    id: 'd1000000-0000-0000-0000-000000000004',
     name: 'Đồng hồ Cơ Tự động Chronograph Sapphire Edition',
     slug: 'dong-ho-co-tu-dong-chronograph-sapphire-edition',
     description: 'Bộ máy cơ tự động Caliber 8215 trữ cót 42 giờ, mặt kính Sapphire nguyên khối chống trầy xước phủ AR chống lóa. Vỏ thép không gỉ 316L đánh bóng mờ cao cấp, dây da bò Ý thuộc thảo mộc.',
@@ -195,7 +196,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: true,
     skus: [
       {
-        id: 'sku-004-brw',
+        id: 'e1000000-0000-0000-0000-000000000031',
         skuCode: 'WAT-AUT-BRW',
         price: 5200000,
         salePrice: 4680000,
@@ -204,7 +205,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 5, quantityReserved: 1, quantityAvailable: 4 },
       },
       {
-        id: 'sku-004-blk',
+        id: 'e1000000-0000-0000-0000-000000000032',
         skuCode: 'WAT-AUT-BLK',
         price: 5200000,
         isActive: true,
@@ -214,7 +215,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-005',
+    id: 'd1000000-0000-0000-0000-000000000005',
     name: 'Đèn Bàn Công nghệ LED Smart Spectrum Pro',
     slug: 'den-ban-cong-nghe-led-smart-spectrum-pro',
     description: 'Chỉ số hoàn màu CRI Ra≥98 bảo vệ thị lực tuyệt đối. Khung nhôm nguyên khối gia công CNC sắc nét, cảm ứng trượt điều chỉnh độ sáng vô cấp và nhiệt độ màu từ 2700K đến 6500K.',
@@ -231,7 +232,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: false,
     skus: [
       {
-        id: 'sku-005-slv',
+        id: 'e1000000-0000-0000-0000-000000000041',
         skuCode: 'LMP-SPC-SLV',
         price: 1850000,
         salePrice: 1590000,
@@ -240,7 +241,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 20, quantityReserved: 2, quantityAvailable: 18 },
       },
       {
-        id: 'sku-005-dgy',
+        id: 'e1000000-0000-0000-0000-000000000042',
         skuCode: 'LMP-SPC-DGY',
         price: 1850000,
         isActive: true,
@@ -250,7 +251,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-006',
+    id: 'd1000000-0000-0000-0000-000000000006',
     name: 'Áo Thun Pima Cotton Supima Kháng Khuẩn Tự Nhiên',
     slug: 'ao-thun-pima-cotton-supima-khang-khuan-tu-nhien',
     description: 'Dệt từ 100% sợi Supima cotton sợi siêu dài thượng hạng từ Tây Nam nước Mỹ. Độ bền gấp đôi cotton thông thường, bề mặt láng mượt bóng nhẹ tự nhiên và giữ form cổ hoàn hảo sau 100 lần giặt.',
@@ -267,7 +268,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: false,
     skus: [
       {
-        id: 'sku-006-wht-m',
+        id: 'e1000000-0000-0000-0000-000000000051',
         skuCode: 'TSH-SUP-WHT-M',
         price: 490000,
         salePrice: 390000,
@@ -276,7 +277,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 50, quantityReserved: 5, quantityAvailable: 45 },
       },
       {
-        id: 'sku-006-wht-l',
+        id: 'e1000000-0000-0000-0000-000000000052',
         skuCode: 'TSH-SUP-WHT-L',
         price: 490000,
         salePrice: 390000,
@@ -285,7 +286,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 30, quantityReserved: 2, quantityAvailable: 28 },
       },
       {
-        id: 'sku-006-blk-m',
+        id: 'e1000000-0000-0000-0000-000000000053',
         skuCode: 'TSH-SUP-BLK-M',
         price: 490000,
         isActive: true,
@@ -293,7 +294,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 15, quantityReserved: 2, quantityAvailable: 13 },
       },
       {
-        id: 'sku-006-nvy-m',
+        id: 'e1000000-0000-0000-0000-000000000054',
         skuCode: 'TSH-SUP-NVY-M',
         price: 490000,
         isActive: true,
@@ -303,7 +304,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-007',
+    id: 'd1000000-0000-0000-0000-000000000007',
     name: 'Bình Giữ Nhiệt Chân Không Thép Titan Minimalist 750ml',
     slug: 'binh-giu-nhiet-chan-khong-thep-titan-minimalist-750ml',
     description: 'Công nghệ chân không 3 lớp giữ nóng 18h và giữ lạnh 36h. Ruột bình tráng gốm Ceramic cao cấp không để lại mùi vị, nắp khóa từ tính một chạm tiện lợi, dây quai silicon chống trượt.',
@@ -320,7 +321,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: true,
     skus: [
       {
-        id: 'sku-007-blk',
+        id: 'e1000000-0000-0000-0000-000000000061',
         skuCode: 'BTL-TTN-BLK',
         price: 690000,
         salePrice: 550000,
@@ -329,7 +330,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 16, quantityReserved: 2, quantityAvailable: 14 },
       },
       {
-        id: 'sku-007-wht',
+        id: 'e1000000-0000-0000-0000-000000000062',
         skuCode: 'BTL-TTN-WHT',
         price: 690000,
         isActive: true,
@@ -339,7 +340,7 @@ export const MOCK_PRODUCTS: Product[] = [
     ],
   },
   {
-    id: 'prod-008',
+    id: 'd1000000-0000-0000-0000-000000000008',
     name: 'Kính Râm Phân Cực UV400 Khung Titanium Siêu Nhẹ',
     slug: 'kinh-ram-phan-cuc-uv400-khung-titanium-sieu-nhe',
     description: 'Trọng lượng siêu nhẹ chỉ 14.5g nhờ gọng hợp kim Titanium hàng không. Tròng kính Polarized 9 lớp lọc 100% tia tử ngoại UV400, chống chói lóa khi lái xe hoặc đi dưới nắng gắt.',
@@ -356,7 +357,7 @@ export const MOCK_PRODUCTS: Product[] = [
     isNewArrival: true,
     skus: [
       {
-        id: 'sku-008-gun',
+        id: 'e1000000-0000-0000-0000-000000000071',
         skuCode: 'SGL-TTN-GUN',
         price: 1890000,
         salePrice: 1590000,
@@ -365,7 +366,7 @@ export const MOCK_PRODUCTS: Product[] = [
         inventory: { quantityOnHand: 14, quantityReserved: 1, quantityAvailable: 13 },
       },
       {
-        id: 'sku-008-gld',
+        id: 'e1000000-0000-0000-0000-000000000072',
         skuCode: 'SGL-TTN-GLD',
         price: 1890000,
         isActive: true,
@@ -376,10 +377,14 @@ export const MOCK_PRODUCTS: Product[] = [
   },
 ];
 
+// Demo customer UUID — used consistently across mock data and stores
+export const MOCK_CUSTOMER_ID = '11111111-1111-1111-1111-111111111111';
+export const MOCK_CART_ID = '22222222-2222-2222-2222-222222222222';
+
 export const MOCK_USER_ADDRESSES: CustomerAddress[] = [
   {
-    id: 'addr-001',
-    customerId: 'cust-demo-001',
+    id: 'aaaaaaaa-0000-0000-0000-000000000001',
+    customerId: MOCK_CUSTOMER_ID,
     recipientName: 'Nguyễn Văn An',
     phone: '0987654321',
     line1: 'Tầng 15, Tòa nhà Landmark 81, 720A Điện Biên Phủ',
@@ -391,8 +396,8 @@ export const MOCK_USER_ADDRESSES: CustomerAddress[] = [
     createdAt: '2026-03-01T08:00:00Z',
   },
   {
-    id: 'addr-002',
-    customerId: 'cust-demo-001',
+    id: 'aaaaaaaa-0000-0000-0000-000000000002',
+    customerId: MOCK_CUSTOMER_ID,
     recipientName: 'Nguyễn Văn An (Văn phòng)',
     phone: '0912345678',
     line1: 'Số 45 Đường Lê Duẩn',
@@ -406,9 +411,9 @@ export const MOCK_USER_ADDRESSES: CustomerAddress[] = [
 
 export const MOCK_ORDERS: Order[] = [
   {
-    id: 'ord-2026-001',
+    id: 'bbbbbbbb-0000-0000-0000-000000000001',
     orderNumber: 'ORD-20260920-8841',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'COMPLETED',
     subtotalAmount: 1850000,
     shippingFeeAmount: 0,
@@ -419,8 +424,8 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-001',
-        skuId: 'sku-005-slv',
+        id: 'cccccccc-0000-0000-0000-000000000001',
+        skuId: 'e1000000-0000-0000-0000-000000000041',
         skuCodeSnapshot: 'LMP-SPC-SLV',
         productNameSnapshot: 'Đèn Bàn Công nghệ LED Smart Spectrum Pro',
         productImageSnapshot: 'https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=400&q=80',
@@ -432,18 +437,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-1',
-        orderId: 'ord-2026-001',
+        id: 'dddddddd-0000-0000-0000-000000000001',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000001',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Đơn hàng được khởi tạo thành công và giữ chỗ kho hàng',
         occurredAt: '2026-09-15T09:12:00Z',
       },
       {
-        id: 'tl-2',
-        orderId: 'ord-2026-001',
+        id: 'dddddddd-0000-0000-0000-000000000002',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000001',
         fromStatus: 'RESERVED',
         toStatus: 'PAID',
         actorType: 'SYSTEM',
@@ -451,8 +456,8 @@ export const MOCK_ORDERS: Order[] = [
         occurredAt: '2026-09-15T09:14:22Z',
       },
       {
-        id: 'tl-3',
-        orderId: 'ord-2026-001',
+        id: 'dddddddd-0000-0000-0000-000000000003',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000001',
         fromStatus: 'PAID',
         toStatus: 'PACKING',
         actorType: 'BACK_OFFICE',
@@ -460,8 +465,8 @@ export const MOCK_ORDERS: Order[] = [
         occurredAt: '2026-09-15T11:00:00Z',
       },
       {
-        id: 'tl-4',
-        orderId: 'ord-2026-001',
+        id: 'dddddddd-0000-0000-0000-000000000004',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000001',
         fromStatus: 'PACKING',
         toStatus: 'SHIPPED',
         actorType: 'BACK_OFFICE',
@@ -469,8 +474,8 @@ export const MOCK_ORDERS: Order[] = [
         occurredAt: '2026-09-15T15:30:00Z',
       },
       {
-        id: 'tl-5',
-        orderId: 'ord-2026-001',
+        id: 'dddddddd-0000-0000-0000-000000000005',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000001',
         fromStatus: 'SHIPPED',
         toStatus: 'COMPLETED',
         actorType: 'SYSTEM',
@@ -480,9 +485,9 @@ export const MOCK_ORDERS: Order[] = [
     ],
   },
   {
-    id: 'ord-2026-002',
+    id: 'bbbbbbbb-0000-0000-0000-000000000002',
     orderNumber: 'ORD-20260925-1092',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'PAID',
     subtotalAmount: 680000,
     shippingFeeAmount: 30000,
@@ -493,8 +498,8 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-002',
-        skuId: 'sku-001-blk-m',
+        id: 'cccccccc-0000-0000-0000-000000000002',
+        skuId: 'e1000000-0000-0000-0000-000000000001',
         skuCodeSnapshot: 'HD-BLK-M',
         productNameSnapshot: 'Áo Hoodie Minimalist Heavyweight Oversized',
         productImageSnapshot: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=400&q=80',
@@ -506,18 +511,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-21',
-        orderId: 'ord-2026-002',
+        id: 'dddddddd-0000-0000-0000-000000000021',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000002',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Đơn hàng được khởi tạo thành công',
         occurredAt: '2026-09-25T14:20:00Z',
       },
       {
-        id: 'tl-22',
-        orderId: 'ord-2026-002',
+        id: 'dddddddd-0000-0000-0000-000000000022',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000002',
         fromStatus: 'RESERVED',
         toStatus: 'PAID',
         actorType: 'SYSTEM',
@@ -527,9 +532,9 @@ export const MOCK_ORDERS: Order[] = [
     ],
   },
   {
-    id: 'ord-2026-003',
+    id: 'bbbbbbbb-0000-0000-0000-000000000003',
     orderNumber: 'ORD-20260930-5521',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'RESERVED',
     subtotalAmount: 450000,
     shippingFeeAmount: 30000,
@@ -540,12 +545,12 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-003',
-        skuId: 'sku-004-crm-40',
-        skuCodeSnapshot: 'SNK-MIN-CRM-40',
-        productNameSnapshot: 'Giày Sneaker Da Tối Giản Monochromatic',
-        productImageSnapshot: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=400&q=80',
-        attributeSnapshot: { Color: 'Kem Trắng (Off-White)', Size: '40' },
+        id: 'cccccccc-0000-0000-0000-000000000003',
+        skuId: 'e1000000-0000-0000-0000-000000000031',
+        skuCodeSnapshot: 'WAT-AUT-BRW',
+        productNameSnapshot: 'Đồng hồ Cơ Tự động Chronograph Sapphire Edition',
+        productImageSnapshot: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=80',
+        attributeSnapshot: { Dial: 'Trắng Bạc', Strap: 'Da Nâu' },
         quantity: 1,
         unitPriceSnapshot: 450000,
         lineTotal: 450000,
@@ -553,21 +558,21 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-31',
-        orderId: 'ord-2026-003',
+        id: 'dddddddd-0000-0000-0000-000000000031',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000003',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Đơn hàng được khởi tạo thành công và giữ chỗ kho hàng trong 15 phút',
         occurredAt: new Date().toISOString(),
       },
     ],
   },
   {
-    id: 'ord-2026-004',
+    id: 'bbbbbbbb-0000-0000-0000-000000000004',
     orderNumber: 'ORD-20260928-3312',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'PACKING',
     subtotalAmount: 550000,
     shippingFeeAmount: 30000,
@@ -578,8 +583,8 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-004',
-        skuId: 'sku-007-blk',
+        id: 'cccccccc-0000-0000-0000-000000000004',
+        skuId: 'e1000000-0000-0000-0000-000000000061',
         skuCodeSnapshot: 'BTL-TTN-BLK',
         productNameSnapshot: 'Bình Giữ Nhiệt Chân Không Thép Titan Minimalist 750ml',
         productImageSnapshot: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=1000&q=85',
@@ -591,18 +596,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-41',
-        orderId: 'ord-2026-004',
+        id: 'dddddddd-0000-0000-0000-000000000041',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000004',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Khởi tạo đơn hàng & Giữ chỗ tồn kho thành công',
         occurredAt: '2026-09-28T10:00:00Z',
       },
       {
-        id: 'tl-42',
-        orderId: 'ord-2026-004',
+        id: 'dddddddd-0000-0000-0000-000000000042',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000004',
         fromStatus: 'RESERVED',
         toStatus: 'PAID',
         actorType: 'SYSTEM',
@@ -610,21 +615,20 @@ export const MOCK_ORDERS: Order[] = [
         occurredAt: '2026-09-28T10:05:00Z',
       },
       {
-        id: 'tl-43',
-        orderId: 'ord-2026-004',
+        id: 'dddddddd-0000-0000-0000-000000000043',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000004',
         fromStatus: 'PAID',
         toStatus: 'PACKING',
         actorType: 'BACK_OFFICE',
-        actorId: 'staff-001',
         note: 'Bắt đầu đóng gói đơn hàng',
         occurredAt: '2026-09-28T11:00:00Z',
       },
     ],
   },
   {
-    id: 'ord-2026-005',
+    id: 'bbbbbbbb-0000-0000-0000-000000000005',
     orderNumber: 'ORD-20260927-7744',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'SHIPPED',
     subtotalAmount: 1590000,
     shippingFeeAmount: 0,
@@ -635,8 +639,8 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-005',
-        skuId: 'sku-008-gun',
+        id: 'cccccccc-0000-0000-0000-000000000005',
+        skuId: 'e1000000-0000-0000-0000-000000000071',
         skuCodeSnapshot: 'SGL-TTN-GUN',
         productNameSnapshot: 'Kính Râm Phân Cực UV400 Khung Titanium Siêu Nhẹ',
         productImageSnapshot: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=1000&q=85',
@@ -648,18 +652,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-51',
-        orderId: 'ord-2026-005',
+        id: 'dddddddd-0000-0000-0000-000000000051',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000005',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Khởi tạo đơn hàng & Giữ chỗ tồn kho thành công',
         occurredAt: '2026-09-27T08:30:00Z',
       },
       {
-        id: 'tl-52',
-        orderId: 'ord-2026-005',
+        id: 'dddddddd-0000-0000-0000-000000000052',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000005',
         fromStatus: 'RESERVED',
         toStatus: 'PAID',
         actorType: 'SYSTEM',
@@ -667,31 +671,29 @@ export const MOCK_ORDERS: Order[] = [
         occurredAt: '2026-09-27T08:35:00Z',
       },
       {
-        id: 'tl-53',
-        orderId: 'ord-2026-005',
+        id: 'dddddddd-0000-0000-0000-000000000053',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000005',
         fromStatus: 'PAID',
         toStatus: 'PACKING',
         actorType: 'BACK_OFFICE',
-        actorId: 'staff-001',
         note: 'Đóng gói sản phẩm hoàn tất, dán nhãn vận chuyển',
         occurredAt: '2026-09-27T10:00:00Z',
       },
       {
-        id: 'tl-54',
-        orderId: 'ord-2026-005',
+        id: 'dddddddd-0000-0000-0000-000000000054',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000005',
         fromStatus: 'PACKING',
         toStatus: 'SHIPPED',
         actorType: 'BACK_OFFICE',
-        actorId: 'staff-001',
         note: 'Bàn giao cho đơn vị vận chuyển GHN (Mã: GHN-VN-44821)',
         occurredAt: '2026-09-27T14:00:00Z',
       },
     ],
   },
   {
-    id: 'ord-2026-006',
+    id: 'bbbbbbbb-0000-0000-0000-000000000006',
     orderNumber: 'ORD-20260926-9012',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'PAYMENT_FAILED',
     subtotalAmount: 450000,
     shippingFeeAmount: 30000,
@@ -702,12 +704,12 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-006',
-        skuId: 'sku-004-crm-40',
-        skuCodeSnapshot: 'SNK-MIN-CRM-40',
-        productNameSnapshot: 'Giày Sneaker Da Tối Giản Monochromatic',
-        productImageSnapshot: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=400&q=80',
-        attributeSnapshot: { Color: 'Kem Trắng (Off-White)', Size: '40' },
+        id: 'cccccccc-0000-0000-0000-000000000006',
+        skuId: 'e1000000-0000-0000-0000-000000000031',
+        skuCodeSnapshot: 'WAT-AUT-BRW',
+        productNameSnapshot: 'Đồng hồ Cơ Tự động Chronograph Sapphire Edition',
+        productImageSnapshot: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=80',
+        attributeSnapshot: { Dial: 'Trắng Bạc', Strap: 'Da Nâu' },
         quantity: 1,
         unitPriceSnapshot: 450000,
         lineTotal: 450000,
@@ -715,18 +717,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-61',
-        orderId: 'ord-2026-006',
+        id: 'dddddddd-0000-0000-0000-000000000061',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000006',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Khởi tạo đơn hàng & Giữ chỗ tồn kho thành công',
         occurredAt: '2026-09-26T16:00:00Z',
       },
       {
-        id: 'tl-62',
-        orderId: 'ord-2026-006',
+        id: 'dddddddd-0000-0000-0000-000000000062',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000006',
         fromStatus: 'RESERVED',
         toStatus: 'PAYMENT_FAILED',
         actorType: 'SYSTEM',
@@ -736,9 +738,9 @@ export const MOCK_ORDERS: Order[] = [
     ],
   },
   {
-    id: 'ord-2026-007',
+    id: 'bbbbbbbb-0000-0000-0000-000000000007',
     orderNumber: 'ORD-20260925-8833',
-    customerId: 'cust-demo-001',
+    customerId: MOCK_CUSTOMER_ID,
     status: 'EXPIRED',
     subtotalAmount: 680000,
     shippingFeeAmount: 30000,
@@ -749,8 +751,8 @@ export const MOCK_ORDERS: Order[] = [
     shippingAddress: MOCK_USER_ADDRESSES[0],
     items: [
       {
-        id: 'item-007',
-        skuId: 'sku-001-blk-m',
+        id: 'cccccccc-0000-0000-0000-000000000007',
+        skuId: 'e1000000-0000-0000-0000-000000000001',
         skuCodeSnapshot: 'HD-BLK-M',
         productNameSnapshot: 'Áo Hoodie Minimalist Heavyweight Oversized',
         productImageSnapshot: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&w=400&q=80',
@@ -762,18 +764,18 @@ export const MOCK_ORDERS: Order[] = [
     ],
     timeline: [
       {
-        id: 'tl-71',
-        orderId: 'ord-2026-007',
+        id: 'dddddddd-0000-0000-0000-000000000071',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000007',
         fromStatus: null,
         toStatus: 'RESERVED',
         actorType: 'CUSTOMER',
-        actorId: 'cust-demo-001',
+        actorId: MOCK_CUSTOMER_ID,
         note: 'Khởi tạo đơn hàng & Giữ chỗ tồn kho',
         occurredAt: '2026-09-25T11:00:00Z',
       },
       {
-        id: 'tl-72',
-        orderId: 'ord-2026-007',
+        id: 'dddddddd-0000-0000-0000-000000000072',
+        orderId: 'bbbbbbbb-0000-0000-0000-000000000007',
         fromStatus: 'RESERVED',
         toStatus: 'EXPIRED',
         actorType: 'SYSTEM',

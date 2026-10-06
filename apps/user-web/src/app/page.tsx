@@ -2,16 +2,89 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { ArrowRight, Sparkles, TrendingUp, Tag, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowRight, Sparkles, TrendingUp, Tag } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { ProductCard } from '@/components/product/ProductCard';
 import { MOCK_PRODUCTS, MOCK_CATEGORIES } from '@/lib/mock-data';
+import { apiClient } from '@/lib/api-client';
+import { Category, Product, PaginatedResult } from '@/types';
+
+// UUID for the Fashion/Thời trang parent category
+const FASHION_CATEGORY_ID = 'a1000000-0000-0000-0000-000000000001';
+
+function CategorySkeleton() {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="rounded-2xl aspect-4/3 sm:aspect-square bg-zinc-200 animate-pulse" />
+      ))}
+    </div>
+  );
+}
+
+function ProductGridSkeleton({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-2xl bg-zinc-200 animate-pulse aspect-[3/4]" />
+      ))}
+    </div>
+  );
+}
 
 export default function HomePage() {
-  const bestSellers = MOCK_PRODUCTS.filter((p) => p.isBestSeller);
-  const promotionalProducts = MOCK_PRODUCTS.filter((p) =>
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () =>
+      apiClient<Category[] | PaginatedResult<Category>>('/api/v1/categories'),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: productsData, isLoading: productsLoading } = useQuery({
+    queryKey: ['products', 'home'],
+    queryFn: () =>
+      apiClient<Product[] | PaginatedResult<Product>>('/api/v1/products?size=20'),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Normalize API response or fall back to mock data
+  const categories: Category[] = (() => {
+    if (!categoriesData) return MOCK_CATEGORIES;
+    if (Array.isArray(categoriesData)) return categoriesData.length > 0 ? categoriesData : MOCK_CATEGORIES;
+    const items = (categoriesData as PaginatedResult<Category>).items;
+    return items && items.length > 0 ? items : MOCK_CATEGORIES;
+  })();
+
+  const allProducts: Product[] = (() => {
+    const rawProducts = (() => {
+      if (!productsData) return MOCK_PRODUCTS;
+      if (Array.isArray(productsData)) return productsData.length > 0 ? productsData : MOCK_PRODUCTS;
+      const items = (productsData as PaginatedResult<Product>).items;
+      return items && items.length > 0 ? items : MOCK_PRODUCTS;
+    })();
+
+    return rawProducts.map((p) => {
+      const mock = MOCK_PRODUCTS.find((m) => m.id === p.id);
+      if (!mock) return p;
+      const cat = categories.find((c) => c.id === p.category?.id || c.id === (p as any).categoryId) || mock.category;
+      return {
+        ...mock,
+        ...p,
+        category: cat,
+        skus: p.skus && p.skus.length > 0 ? p.skus : mock.skus,
+        mediaUrls: p.mediaUrls && p.mediaUrls.length > 0 ? p.mediaUrls : mock.mediaUrls,
+      };
+    });
+  })();
+
+  const bestSellers = allProducts.filter((p) => p.isBestSeller);
+  const promotionalProducts = allProducts.filter((p) =>
     p.skus.some((s) => s.salePrice && s.salePrice < s.price)
   );
-  const newArrivals = MOCK_PRODUCTS.filter((p) => p.isNewArrival);
+  const newArrivals = allProducts.filter((p) => p.isNewArrival);
+
+  // Top-level parent categories only
+  const topCategories = categories.filter((c) => !c.parentId).slice(0, 4);
 
   return (
     <div className="space-y-12 sm:space-y-16">
@@ -54,7 +127,7 @@ export default function HomePage() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
             <Link
-              href="/products?categoryId=cat-fashion"
+              href={`/products?categoryId=${FASHION_CATEGORY_ID}`}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold backdrop-blur-xs transition border border-white/20"
             >
               Thời trang & May mặc
@@ -83,34 +156,38 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-          {MOCK_CATEGORIES.map((cat) => (
-            <Link
-              key={cat.id}
-              href={`/products?categoryId=${cat.id}`}
-              className="group relative rounded-2xl overflow-hidden aspect-4/3 sm:aspect-square bg-zinc-100 border border-zinc-200/80 shadow-xs hover:shadow-md transition-all duration-300 block"
-            >
-              <img
-                src={cat.imageUrl}
-                alt={cat.name}
-                className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
-              <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 text-white">
-                <h3 className="text-sm sm:text-base font-bold leading-tight drop-shadow-xs">
-                  {cat.name}
-                </h3>
-                <span className="text-[11px] text-zinc-300 flex items-center gap-1 mt-1 group-hover:translate-x-1 transition-transform">
-                  <span>Khám phá</span>
-                  <ArrowRight className="w-3 h-3" />
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
+        {categoriesLoading ? (
+          <CategorySkeleton />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            {topCategories.map((cat) => (
+              <Link
+                key={cat.id}
+                href={`/products?categoryId=${cat.id}`}
+                className="group relative rounded-2xl overflow-hidden aspect-4/3 sm:aspect-square bg-zinc-100 border border-zinc-200/80 shadow-xs hover:shadow-md transition-all duration-300 block"
+              >
+                <img
+                  src={cat.imageUrl}
+                  alt={cat.name}
+                  className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent" />
+                <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 text-white">
+                  <h3 className="text-sm sm:text-base font-bold leading-tight drop-shadow-xs">
+                    {cat.name}
+                  </h3>
+                  <span className="text-[11px] text-zinc-300 flex items-center gap-1 mt-1 group-hover:translate-x-1 transition-transform">
+                    <span>Khám phá</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* 3. Hot Deals & Promotions (BR-013 Strike-through Price Demonstration) */}
+      {/* 3. Hot Deals & Promotions */}
       <section className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -134,11 +211,15 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {promotionalProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {productsLoading ? (
+          <ProductGridSkeleton count={4} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {promotionalProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 4. Best Sellers Section */}
@@ -165,11 +246,15 @@ export default function HomePage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {bestSellers.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {productsLoading ? (
+          <ProductGridSkeleton count={4} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {bestSellers.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 5. New Arrivals Section */}
@@ -192,11 +277,15 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-            {newArrivals.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
-          </div>
+          {productsLoading ? (
+            <ProductGridSkeleton count={4} />
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+              {newArrivals.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+            </div>
+          )}
         </section>
       )}
     </div>

@@ -19,7 +19,7 @@ export function ProductCard({ product }: ProductCardProps) {
   const { showSuccess, showWarning } = useToastStore();
 
   // Primary SKU to display
-  const primarySku = product.skus[0];
+  const primarySku = product.skus?.[0];
   const basePrice = primarySku?.price ?? 0;
   const salePrice = primarySku?.salePrice;
   const discountPercent = calculateDiscountPercent(basePrice, salePrice);
@@ -56,7 +56,7 @@ export function ProductCard({ product }: ProductCardProps) {
       {/* 1. Image Frame (1:1 square) */}
       <Link href={`/products/${product.id}`} className="relative aspect-square w-full overflow-hidden bg-zinc-100 block">
         <img
-          src={product.mediaUrls[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600'}
+          src={product.mediaUrls?.[0] || 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600'}
           alt={product.name}
           className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ease-out"
         />

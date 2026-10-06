@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CartItem, Product, Sku, BusinessConfiguration, Cart } from '@/types';
 import { apiClient, ApiClientError } from '@/lib/api-client';
+import { MOCK_CART_ID, MOCK_CUSTOMER_ID } from '@/lib/mock-data';
 
 export const DEFAULT_FREE_SHIPPING_THRESHOLD = 500000; // 500,000 VND
 export const DEFAULT_STANDARD_SHIPPING_FEE = 30000; // 30,000 VND
@@ -42,7 +43,7 @@ export interface CartState {
 export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
-      cartId: 'cart-demo-001',
+      cartId: MOCK_CART_ID,
       items: [],
       itemCount: 0,
       subtotal: 0,
@@ -91,12 +92,12 @@ export const useCartStore = create<CartState>()(
         }
       },
 
-      loadCart: async (customerId = 'cust-demo-001') => {
+      loadCart: async (customerId = MOCK_CUSTOMER_ID) => {
         try {
           const res = await apiClient<Cart>(`/api/v1/customers/${customerId}/cart`);
           if (res && Array.isArray(res.items)) {
             set({
-              cartId: res.id || get().cartId || 'cart-demo-001',
+              cartId: res.id || get().cartId || MOCK_CART_ID,
               items: res.items,
               itemCount: res.items.reduce((sum, i) => sum + i.quantity, 0),
               subtotal: res.subtotal ?? res.items.reduce((sum, i) => sum + i.totalPrice, 0),
@@ -107,7 +108,7 @@ export const useCartStore = create<CartState>()(
         }
       },
 
-      addItem: async (product, sku, quantity = 1, customerId = 'cust-demo-001') => {
+      addItem: async (product, sku, quantity = 1, customerId = MOCK_CUSTOMER_ID) => {
         const { items } = get();
         const maxStock = sku.inventory?.quantityAvailable ?? 0;
 
@@ -209,7 +210,7 @@ export const useCartStore = create<CartState>()(
         return { success: true };
       },
 
-      updateQuantity: async (itemId, quantity, customerId = 'cust-demo-001') => {
+      updateQuantity: async (itemId, quantity, customerId = MOCK_CUSTOMER_ID) => {
         const { items } = get();
         const target = items.find((i) => i.id === itemId);
         if (!target) return { success: false, message: 'Sản phẩm không có trong giỏ.' };
@@ -281,7 +282,7 @@ export const useCartStore = create<CartState>()(
         return { success: true };
       },
 
-      removeItem: async (itemId, customerId = 'cust-demo-001') => {
+      removeItem: async (itemId, customerId = MOCK_CUSTOMER_ID) => {
         const { items } = get();
         const updatedItems = items.filter((i) => i.id !== itemId);
         const newCount = updatedItems.reduce((sum, i) => sum + i.quantity, 0);
@@ -302,7 +303,7 @@ export const useCartStore = create<CartState>()(
         }
       },
 
-      clearCart: async (customerId = 'cust-demo-001') => {
+      clearCart: async (customerId = MOCK_CUSTOMER_ID) => {
         set({
           items: [],
           itemCount: 0,

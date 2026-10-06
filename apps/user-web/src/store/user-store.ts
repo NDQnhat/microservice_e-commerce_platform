@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User, CustomerAddress, AuthResponse } from '@/types';
 import { apiClient } from '@/lib/api-client';
-import { MOCK_USER_ADDRESSES } from '@/lib/mock-data';
+import { MOCK_USER_ADDRESSES, MOCK_CUSTOMER_ID } from '@/lib/mock-data';
 
 interface UserState {
   user: User | null;
@@ -56,7 +56,7 @@ export const useUserStore = create<UserState>()(
 
       addAddress: async (addr) => {
         const { user, addresses } = get();
-        const userId = user?.id || 'cust-demo-001';
+        const userId = user?.id || MOCK_CUSTOMER_ID;
         const res = await apiClient<CustomerAddress>(`/api/v1/customers/${userId}/addresses`, {
           method: 'POST',
           body: JSON.stringify(addr),
@@ -73,7 +73,7 @@ export const useUserStore = create<UserState>()(
 
       updateAddress: async (id, addr) => {
         const { user, addresses } = get();
-        const userId = user?.id || 'cust-demo-001';
+        const userId = user?.id || MOCK_CUSTOMER_ID;
         const res = await apiClient<CustomerAddress>(`/api/v1/customers/${userId}/addresses/${id}`, {
           method: 'PUT',
           body: JSON.stringify(addr),
@@ -89,7 +89,7 @@ export const useUserStore = create<UserState>()(
 
       deleteAddress: async (id) => {
         const { user, addresses } = get();
-        const userId = user?.id || 'cust-demo-001';
+        const userId = user?.id || MOCK_CUSTOMER_ID;
         await apiClient(`/api/v1/customers/${userId}/addresses/${id}`, {
           method: 'DELETE',
         });

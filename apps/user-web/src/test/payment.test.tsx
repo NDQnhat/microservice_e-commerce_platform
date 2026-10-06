@@ -51,7 +51,7 @@ describe('Payment Callback & BR-002 Duplicate Callback Idempotency', () => {
       '/api/v1/customers/cust-demo-001/orders/ord-2026-003/expire',
       { method: 'POST' }
     );
-    expect(res.id).toBe('ord-2026-003');
+    expect(res.id).toBe('bbbbbbbb-0000-0000-0000-000000000003');
     expect(res.status).toBe('EXPIRED');
   });
 });

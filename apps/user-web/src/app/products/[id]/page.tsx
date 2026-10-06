@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Product, Sku } from '@/types';
+import { Product, Sku, PaginatedResult } from '@/types';
 import { ProductGallery } from '@/components/product/ProductGallery';
 import { VariantSelector } from '@/components/product/VariantSelector';
 import { ProductCard } from '@/components/product/ProductCard';
@@ -53,7 +53,7 @@ export default function ProductDetailPage({
 
   // Set default SKU once product is loaded
   React.useEffect(() => {
-    if (product && product.skus.length > 0 && !selectedSku) {
+    if (product && product.skus && product.skus.length > 0 && !selectedSku) {
       setSelectedSku(product.skus[0]);
     }
   }, [product, selectedSku]);
@@ -86,7 +86,7 @@ export default function ProductDetailPage({
     );
   }
 
-  const currentSku = selectedSku || product.skus[0];
+  const currentSku = selectedSku || product.skus?.[0];
   const maxStock = currentSku?.inventory?.quantityAvailable ?? 0;
   const isOutOfStock = maxStock <= 0;
 
@@ -122,10 +122,31 @@ export default function ProductDetailPage({
     }
   };
 
-  // Related products from same category
-  const relatedProducts = MOCK_PRODUCTS.filter(
-    (p) => p.id !== product.id && p.category.id === product.category.id
-  ).slice(0, 4);
+  // Related products from same category via API, fallback to mock
+  const categoryId = product.category?.id || (product as any).categoryId;
+  const categoryName = product.category?.name || 'Danh mục sản phẩm';
+
+  const { data: relatedData } = useQuery({
+    queryKey: ['products', 'related', categoryId],
+    queryFn: () =>
+      apiClient<Product[] | PaginatedResult<Product>>(
+        `/api/v1/products?categoryId=${categoryId}&size=5`
+      ),
+    enabled: !!categoryId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const relatedProducts = (() => {
+    if (!relatedData) {
+      return MOCK_PRODUCTS.filter(
+        (p: Product) => p.id !== product.id && (p.category?.id === categoryId || (p as any).categoryId === categoryId)
+      ).slice(0, 4);
+    }
+    const items = Array.isArray(relatedData)
+      ? relatedData
+      : (relatedData as PaginatedResult<Product>).items ?? [];
+    return items.filter((p) => p.id !== product.id).slice(0, 4);
+  })();
 
   return (
     <div className="space-y-12 sm:space-y-16">
@@ -140,10 +161,10 @@ export default function ProductDetailPage({
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
         <Link
-          href={`/products?categoryId=${product.category.id}`}
+          href={categoryId ? `/products?categoryId=${categoryId}` : '/products'}
           className="hover:text-zinc-900 transition"
         >
-          {product.category.name}
+          {categoryName}
         </Link>
         <ChevronRight className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
         <span className="text-zinc-900 font-medium truncate max-w-[200px]">{product.name}</span>
@@ -152,13 +173,13 @@ export default function ProductDetailPage({
       {/* Main PDP Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 sm:gap-12 items-start">
         {/* Gallery */}
-        <ProductGallery mediaUrls={product.mediaUrls} productName={product.name} />
+        <ProductGallery mediaUrls={product.mediaUrls || []} productName={product.name} />
 
         {/* Product Details & Variant Selector */}
         <div className="space-y-6 sm:space-y-8">
           <div>
             <span className="text-xs uppercase font-bold tracking-wider text-zinc-400">
-              {product.category.name}
+              {categoryName}
             </span>
             <h1 className="mt-1 text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug">
               {product.name}
@@ -279,11 +300,11 @@ export default function ProductDetailPage({
               </div>
               <div className="grid grid-cols-2 py-2 border-b border-zinc-100">
                 <span className="font-semibold text-zinc-900">Mã SKU hiện tại:</span>
-                <span className="font-mono text-zinc-600">{currentSku.skuCode}</span>
+                <span className="font-mono text-zinc-600">{currentSku?.skuCode || 'N/A'}</span>
               </div>
               <div className="grid grid-cols-2 py-2 border-b border-zinc-100">
                 <span className="font-semibold text-zinc-900">Danh mục:</span>
-                <span>{product.category.name}</span>
+                <span>{categoryName}</span>
               </div>
               <div className="grid grid-cols-2 py-2 border-b border-zinc-100">
                 <span className="font-semibold text-zinc-900">Xuất xứ:</span>

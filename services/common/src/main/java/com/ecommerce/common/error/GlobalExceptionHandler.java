@@ -6,10 +6,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -176,6 +178,52 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatchException(MethodArgumentTypeMismatchException ex,
+                                                                        HttpServletRequest request) {
+        String paramName = ex.getName();
+        String requiredType = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "unknown";
+        String detail = String.format(
+                "Parameter '%s' has invalid value '%s'. Expected type: %s.",
+                paramName, ex.getValue(), requiredType
+        );
+
+        ApiErrorResponse response = new ApiErrorResponse(
+                "urn:problem-type:validation-error",
+                "Bad Request",
+                HttpStatus.BAD_REQUEST.value(),
+                detail,
+                request.getRequestURI(),
+                "VALIDATION_ERROR",
+                null,
+                CorrelationContext.getCorrelationId(),
+                null
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
+                                                                         HttpServletRequest request) {
+        String detail = "Request body is malformed or contains invalid data types. " +
+                "Please verify all fields match the expected format (e.g., UUID fields must be valid UUIDs).";
+
+        ApiErrorResponse response = new ApiErrorResponse(
+                "urn:problem-type:validation-error",
+                "Bad Request",
+                HttpStatus.BAD_REQUEST.value(),
+                detail,
+                request.getRequestURI(),
+                "VALIDATION_ERROR",
+                null,
+                CorrelationContext.getCorrelationId(),
+                null
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @ExceptionHandler(AuthorizationFailedException.class)

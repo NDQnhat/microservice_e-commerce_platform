@@ -4,6 +4,7 @@ import {
   AuthResponse,
   Category,
   Product,
+  Sku,
   CustomerAddress,
   Order,
   Cart,
@@ -17,6 +18,8 @@ import {
   MOCK_PRODUCTS,
   MOCK_USER_ADDRESSES,
   MOCK_ORDERS,
+  MOCK_CUSTOMER_ID,
+  MOCK_CART_ID,
 } from './mock-data';
 import { generateUUID } from './utils';
 
@@ -31,16 +34,34 @@ export class ApiClientError extends Error {
 let liveAddresses: CustomerAddress[] = [...MOCK_USER_ADDRESSES];
 let liveOrders: Order[] = [...MOCK_ORDERS];
 let liveCart: Cart = {
-  id: 'cart-demo-001',
-  userId: 'cust-demo-001',
+  id: MOCK_CART_ID,
+  userId: MOCK_CUSTOMER_ID,
   items: [],
   subtotal: 0,
   currency: 'VND',
 };
-const processedPaymentSuccessOrders = new Set<string>(['ord-2026-001', 'ord-2026-002']);
+const processedPaymentSuccessOrders = new Set<string>([
+  'bbbbbbbb-0000-0000-0000-000000000001',
+  'bbbbbbbb-0000-0000-0000-000000000002',
+  'ord-2026-001',
+  'ord-2026-002',
+]);
 const processedIdempotencyKeys = new Map<string, Order>();
 const livePaymentTransactions = new Map<string, PaymentTransaction>();
 const registeredEmails = new Set<string>(['demo@example.com', 'admin@example.com', 'customer@ecommerce.local']);
+
+function findLiveOrder(orderId?: string): Order | undefined {
+  if (!orderId) return undefined;
+  const legacyMap: Record<string, string> = {
+    'ord-2026-001': 'bbbbbbbb-0000-0000-0000-000000000001',
+    'ord-2026-002': 'bbbbbbbb-0000-0000-0000-000000000002',
+    'ord-2026-003': 'bbbbbbbb-0000-0000-0000-000000000003',
+  };
+  const mappedId = legacyMap[orderId] || orderId;
+  return liveOrders.find(
+    (o) => o.id === orderId || o.id === mappedId || o.orderNumber === orderId
+  );
+}
 
 let currentMockState = true;
 type MockListener = (active: boolean) => void;
@@ -71,8 +92,8 @@ export function getLiveCart(): Cart {
 
 export function resetLiveCart(): void {
   liveCart = {
-    id: 'cart-demo-001',
-    userId: 'cust-demo-001',
+    id: MOCK_CART_ID,
+    userId: MOCK_CUSTOMER_ID,
     items: [],
     subtotal: 0,
     currency: 'VND',
@@ -85,6 +106,117 @@ function generateCorrelationId(): string {
     return crypto.randomUUID();
   }
   return 'corr-' + Math.random().toString(36).substring(2, 15);
+}
+
+/**
+ * Normalizes a Spring Boot Page<T> response to the frontend PaginatedResult shape.
+ * Spring returns: { content, totalElements, totalPages, number, size, ... }
+ * Frontend expects: { items, total, totalPages, page, size }
+ */
+function normalizeSpringPage<T>(data: T): T {
+  if (
+    data !== null &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    'content' in data &&
+    'totalElements' in data
+  ) {
+    const page = data as Record<string, unknown>;
+    return {
+      items: page['content'],
+      total: page['totalElements'],
+      totalPages: page['totalPages'],
+      page: typeof page['number'] === 'number' ? (page['number'] as number) + 1 : 1,
+      size: page['size'],
+    } as T;
+  }
+  return data;
+}
+
+/**
+ * Normalizes a backend Product / ProductDetailDto into the rich frontend Product interface.
+ * Fills in category object from categoryId, extracts mediaUrls from media array,
+ * and attaches SKU pricing/attributes.
+ */
+function normalizeProduct(raw: any): Product {
+  if (!raw || typeof raw !== 'object') return raw;
+
+  const id = raw.id;
+  const mock = MOCK_PRODUCTS.find((m) => m.id === id);
+
+  // Category resolution: backend has categoryId
+  let category = raw.category;
+  if (!category && (raw.categoryId || mock?.category)) {
+    const catId = raw.categoryId || mock?.category?.id;
+    const foundCat =
+      MOCK_CATEGORIES.find((c) => c.id === catId) ||
+      MOCK_CATEGORIES.flatMap((c) => c.subcategories || []).find((s) => s.id === catId);
+    category = foundCat || mock?.category || {
+      id: catId || 'a1000000-0000-0000-0000-000000000001',
+      name: 'Thời trang & May mặc',
+      code: 'FASHION',
+      displayOrder: 1,
+      isActive: true,
+    };
+  }
+
+  // Media URLs resolution: backend returns `media: [{ url: "..." }]`
+  let mediaUrls: string[] = raw.mediaUrls;
+  if (!mediaUrls && Array.isArray(raw.media)) {
+    mediaUrls = raw.media.map((m: any) => m.url).filter(Boolean);
+  }
+  if (!mediaUrls || mediaUrls.length === 0) {
+    mediaUrls = mock?.mediaUrls || [
+      'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1000&q=85',
+    ];
+  }
+
+  // SKUs resolution: backend returns `skus: [{ id, skuCode, status, attributeValues }]`
+  let skus: Sku[] = raw.skus;
+  if (Array.isArray(skus) && skus.length > 0) {
+    skus = skus.map((s: any) => {
+      const mockSku = mock?.skus?.find((ms) => ms.id === s.id || ms.skuCode === s.skuCode);
+
+      let attributes = s.attributes;
+      if (!attributes && Array.isArray(s.attributeValues)) {
+        attributes = {};
+        s.attributeValues.forEach((av: any, idx: number) => {
+          const key = av.attributeId ? `Thuộc tính ${idx + 1}` : 'Phân loại';
+          attributes[key] = av.value;
+        });
+      }
+
+      return {
+        id: s.id,
+        productId: s.productId || id,
+        skuCode: s.skuCode || mockSku?.skuCode || 'SKU-DEFAULT',
+        price: s.price ?? mockSku?.price ?? 850000,
+        salePrice: s.salePrice ?? mockSku?.salePrice,
+        isActive: s.status === 'ACTIVE' || s.isActive !== false,
+        attributes: attributes || mockSku?.attributes || {},
+        inventory: s.inventory || mockSku?.inventory || {
+          quantityOnHand: 20,
+          quantityReserved: 0,
+          quantityAvailable: 20,
+        },
+      };
+    });
+  } else if (mock?.skus) {
+    skus = mock.skus;
+  }
+
+  return {
+    ...mock,
+    ...raw,
+    category,
+    mediaUrls,
+    skus: skus || [],
+    rating: raw.rating ?? mock?.rating ?? 4.8,
+    reviewCount: raw.reviewCount ?? mock?.reviewCount ?? 50,
+    isFeatured: raw.isFeatured ?? mock?.isFeatured ?? false,
+    isBestSeller: raw.isBestSeller ?? mock?.isBestSeller ?? false,
+    isNewArrival: raw.isNewArrival ?? mock?.isNewArrival ?? false,
+  };
 }
 
 export interface ApiClientOptions extends RequestInit {
@@ -130,11 +262,43 @@ export async function apiClient<T>(
     clearTimeout(timeoutId);
 
     if (response.ok) {
-      setMockMode(false);
       if (response.status === 204) {
         return {} as T;
       }
-      return (await response.json()) as T;
+      const data = await response.json();
+
+      // Normalize Spring Boot Page<T> → PaginatedResult
+      let normalized = normalizeSpringPage(data);
+
+      if (endpoint.includes('/api/v1/products')) {
+        if (normalized && typeof normalized === 'object' && 'items' in normalized && Array.isArray((normalized as any).items)) {
+          (normalized as any).items = (normalized as any).items.map(normalizeProduct);
+        } else if (Array.isArray(normalized)) {
+          normalized = normalized.map(normalizeProduct) as unknown as T;
+        } else if (normalized && typeof normalized === 'object' && 'id' in normalized) {
+          normalized = normalizeProduct(normalized) as unknown as T;
+        }
+      }
+
+      // Only disable mock mode when a data endpoint returns non-empty content
+      const isDataEndpoint = /\/api\/v1\/(products|categories)/.test(endpoint);
+      if (isDataEndpoint) {
+        const items = normalized && typeof normalized === 'object' && 'items' in normalized
+          ? (normalized as { items: unknown[] }).items
+          : Array.isArray(normalized) ? normalized : null;
+        if (items && items.length > 0) {
+          setMockMode(false);
+        }
+      }
+
+      return normalized as T;
+    }
+
+    // Graceful fallback for 503 Service Unavailable
+    if (response.status === 503) {
+      console.warn(`[apiClient] 503 Service Unavailable for: ${endpoint}. Falling back to mock.`);
+      setMockMode(true);
+      return handleMockRequest<T>(endpoint, options, correlationId);
     }
 
     // Try parsing RFC 7807 problem details
@@ -240,7 +404,7 @@ function handleMockRequest<T>(
             tokenType: 'Bearer',
             expiresIn: 86400,
             user: {
-              id: 'cust-demo-001',
+              id: MOCK_CUSTOMER_ID,
               email: body.email,
               fullName: body.email.includes('admin') ? 'Quản trị viên' : 'Nguyễn Văn An',
               phone: '0987654321',
@@ -302,7 +466,7 @@ function handleMockRequest<T>(
         if (endpoint.match(/\/api\/v1\/customers\/[^/]+\/addresses$/) && method === 'POST') {
           const newAddr: CustomerAddress = {
             id: 'addr-' + generateUUID().slice(0, 8),
-            customerId: 'cust-demo-001',
+            customerId: MOCK_CUSTOMER_ID,
             recipientName: body.recipient_name || body.recipientName,
             phone: body.phone,
             line1: body.line1 || body.addressLine1,
@@ -742,7 +906,7 @@ function handleMockRequest<T>(
           const newOrder: Order = {
             id: 'ord-' + generateUUID().slice(0, 8),
             orderNumber: 'ORD-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(1000 + Math.random() * 9000),
-            customerId: 'cust-demo-001',
+            customerId: MOCK_CUSTOMER_ID,
             status: 'RESERVED',
             subtotalAmount: calculatedSubtotal,
             shippingFeeAmount: shippingFee,
@@ -761,7 +925,7 @@ function handleMockRequest<T>(
                 fromStatus: null,
                 toStatus: 'RESERVED',
                 actorType: 'CUSTOMER',
-                actorId: 'cust-demo-001',
+                actorId: MOCK_CUSTOMER_ID,
                 note: 'Khởi tạo đơn hàng & Giữ chỗ tồn kho thành công (Atomic Reservation)',
                 occurredAt: new Date().toISOString(),
               },
@@ -783,7 +947,7 @@ function handleMockRequest<T>(
         // POST /api/v1/payments/initiate (FIX-C1, Section 9 Step 1)
         if (endpoint.includes('/api/v1/payments/initiate') && method === 'POST') {
           const orderId = body?.order_id || body?.orderId;
-          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+          const order = findLiveOrder(orderId);
 
           if (!order) {
             return reject(
@@ -833,7 +997,7 @@ function handleMockRequest<T>(
           const customersIdx = parts.indexOf('customers');
           const requestingCustomerId = customersIdx !== -1 ? parts[customersIdx + 1] : undefined;
           const orderId = parts[parts.indexOf('orders') + 1];
-          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+          const order = findLiveOrder(orderId);
 
           if (!order) {
             return reject(
@@ -851,7 +1015,7 @@ function handleMockRequest<T>(
           }
 
           // Ownership check (FIX-H3)
-          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== MOCK_CUSTOMER_ID && requestingCustomerId !== 'cust-demo-001') {
             return reject(
               new ApiClientError({
                 type: 'https://api.ecommerce.local/errors/authorization',
@@ -913,7 +1077,7 @@ function handleMockRequest<T>(
           const customersIdx = parts.indexOf('customers');
           const requestingCustomerId = parts[customersIdx + 1];
           const orderId = parts.pop();
-          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+          const order = findLiveOrder(orderId);
           if (!order) {
             return reject(
               new ApiClientError({
@@ -930,7 +1094,7 @@ function handleMockRequest<T>(
           }
 
           // Ownership check (FIX-H3)
-          if (order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+          if (order.customerId !== requestingCustomerId && requestingCustomerId !== MOCK_CUSTOMER_ID && requestingCustomerId !== 'cust-demo-001') {
             return reject(
               new ApiClientError({
                 type: 'https://api.ecommerce.local/errors/authorization',
@@ -954,7 +1118,7 @@ function handleMockRequest<T>(
           const customersIdx = parts.indexOf('customers');
           const requestingCustomerId = customersIdx !== -1 ? parts[customersIdx + 1] : undefined;
           const orderId = parts[parts.indexOf('orders') + 1];
-          const order = liveOrders.find((o) => o.id === orderId || o.orderNumber === orderId);
+          const order = findLiveOrder(orderId);
 
           if (!order) {
             return reject(
@@ -972,7 +1136,7 @@ function handleMockRequest<T>(
           }
 
           // Ownership check (FIX-H3)
-          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== 'cust-demo-001') {
+          if (requestingCustomerId && order.customerId !== requestingCustomerId && requestingCustomerId !== MOCK_CUSTOMER_ID && requestingCustomerId !== 'cust-demo-001') {
             return reject(
               new ApiClientError({
                 type: 'https://api.ecommerce.local/errors/authorization',
@@ -1038,7 +1202,7 @@ function handleMockRequest<T>(
         // POST /api/v1/payments/callback
         if (endpoint.includes('/api/v1/payments/callback') && method === 'POST') {
           const payload = body as PaymentCallbackPayload;
-          const order = liveOrders.find((o) => o.id === payload.order_id || o.orderNumber === payload.order_id);
+          const order = findLiveOrder(payload.order_id);
 
           if (!order) {
             return reject(
